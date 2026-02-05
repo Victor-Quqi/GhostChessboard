@@ -88,7 +88,7 @@ Schedule: purchasing in February, hardware and software in March, testing in Apr
 
 ### Slide 7: Workload Breakdown
 
-For workload, XXX mainly handles hardware, XXX handles software, and we test together.
+For workload, XXX mainly handles hardware, XXX mainly handles software, and we test together.
 
 | Work | Person |
 |------|--------|

@@ -99,7 +99,7 @@
 
 | 中文 | English |
 |------|---------|
-| 分工方面，XXX 主要负责硬件，XXX 主要负责软件，调试一起做。 | For workload, XXX handles hardware, XXX handles software, and we test together. |
+| 分工方面，XXX 主要负责硬件，XXX 主要负责软件，调试一起做。 | For workload, XXX mainly handles hardware, XXX mainly handles software, and we test together. |
 
 **表格 / Table（展示用）：**
 
