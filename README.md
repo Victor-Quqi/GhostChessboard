@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-🛒 **采购阶段**
+🔧 **硬件搭建中** — XY 框架已组装，电磁铁已安装，下一步接线调试
 
 ## 设计原则
 
@@ -20,10 +20,14 @@
 
 - [技术规划](docs/tech.md)
 - [物料清单](docs/bom.md)
+- [项目进度](docs/progress.md)
 
 ## 团队
 
-两人小组
+| 成员 | 方向 |
+|---|---|
+| [@Victor-Quqi](https://github.com/Victor-Quqi) | 软件（视觉/AI/运动控制） |
+| [@AmakusaMika](https://github.com/AmakusaMika) | 硬件 & 环境配置 |
 
 ---
 
