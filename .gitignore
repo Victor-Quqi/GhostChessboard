@@ -43,6 +43,10 @@ nul
 .pio
 .cache
 
+# Python cache
+__pycache__/
+*.py[cod]
+
 misc
 
 compile_commands.json
