@@ -1,0 +1,116 @@
+"""Runtime configuration for GhostChessboard control."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field, is_dataclass
+import json
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(slots=True)
+class SerialConfig:
+    port: str = "/dev/ttyUSB0"
+    baudrate: int = 115200
+    startup_delay_s: float = 2.0
+    read_timeout_s: float = 0.2
+
+
+@dataclass(slots=True)
+class MotionConfig:
+    x_cell_pitch_mm: float = 41.2
+    y_cell_pitch_mm: float = 42.0
+    engage_pwm: int = 1000
+    drag_pwm: int = 1000
+    move_feed_mm_min: float = 120.0
+    return_feed_mm_min: float = 800.0
+    engage_delay_s: float = 0.20
+    settle_delay_s: float = 0.10
+
+
+@dataclass(slots=True)
+class CompensationConfig:
+    overshoot_x_pos_mm: float = 16.0
+    overshoot_x_neg_mm: float = 16.0
+    overshoot_y_pos_mm: float = 16.0
+    overshoot_y_neg_mm: float = 16.0
+    pre_x_pos_mm: float = 15.0
+    pre_x_neg_mm: float = 15.0
+    pre_y_pos_mm: float = 15.0
+    pre_y_neg_mm: float = 15.0
+
+    def overshoot_for(self, direction: str) -> float:
+        mapping = {
+            "x+": self.overshoot_x_pos_mm,
+            "x-": self.overshoot_x_neg_mm,
+            "y+": self.overshoot_y_pos_mm,
+            "y-": self.overshoot_y_neg_mm,
+        }
+        try:
+            return mapping[direction]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported direction: {direction}") from exc
+
+    def pre_for(self, direction: str) -> float:
+        mapping = {
+            "x+": self.pre_x_pos_mm,
+            "x-": self.pre_x_neg_mm,
+            "y+": self.pre_y_pos_mm,
+            "y-": self.pre_y_neg_mm,
+        }
+        try:
+            return mapping[direction]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported direction: {direction}") from exc
+
+
+@dataclass(slots=True)
+class GrblConfig:
+    pwm_max: int = 1000
+    laser_mode: int = 0
+    startup_commands: list[str] = field(
+        default_factory=lambda: [
+            "$30=1000",
+            "$32=0",
+            "G21",
+            "G91",
+        ]
+    )
+
+
+@dataclass(slots=True)
+class AppConfig:
+    serial: SerialConfig = field(default_factory=SerialConfig)
+    grbl: GrblConfig = field(default_factory=GrblConfig)
+    motion: MotionConfig = field(default_factory=MotionConfig)
+    compensation: CompensationConfig = field(default_factory=CompensationConfig)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _merge_dataclass(instance: Any, updates: dict[str, Any]) -> None:
+    for key, value in updates.items():
+        if not hasattr(instance, key):
+            continue
+
+        current = getattr(instance, key)
+        if is_dataclass(current) and isinstance(value, dict):
+            _merge_dataclass(current, value)
+            continue
+
+        setattr(instance, key, value)
+
+
+def load_config(path: str | Path | None = None) -> AppConfig:
+    config = AppConfig()
+    if path is None:
+        return config
+
+    config_path = Path(path)
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("Config root must be a JSON object.")
+
+    _merge_dataclass(config, raw)
+    return config
