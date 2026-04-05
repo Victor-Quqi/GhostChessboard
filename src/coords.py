@@ -11,8 +11,8 @@ Capture area:
 - slot indices 0-19
 """
 
-X_CELL_PITCH_MM = 41.2
-Y_CELL_PITCH_MM = 42.0
+X_CELL_PITCH_MM = 371.0 / 9.0
+Y_CELL_PITCH_MM = 335.0 / 8.0
 
 def cell_to_xy(x_index: int, y_index: int) -> tuple[float, float]:
     """Convert a main-board point index (x, y) to physical coordinates in mm."""
