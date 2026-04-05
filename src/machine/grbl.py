@@ -148,20 +148,36 @@ class GrblController:
         self.command(f"G4 P{seconds:.3f}")
         self.wait_for_idle(timeout_s=max(5.0, seconds + 2.0))
 
-    def jog_relative(self, *, dx_mm: float = 0.0, dy_mm: float = 0.0, feed_mm_min: float | None = None) -> None:
+    def _motion_timeout_s(self, *, dx_mm: float = 0.0, dy_mm: float = 0.0, feed_mm_min: float | None = None) -> float:
+        distance = abs(dx_mm) + abs(dy_mm)
+        return max(10.0, distance / max(feed_mm_min or 1.0, 1.0) * 90.0)
+
+    def jog_relative(
+        self,
+        *,
+        dx_mm: float = 0.0,
+        dy_mm: float = 0.0,
+        feed_mm_min: float | None = None,
+        wait_for_idle: bool = True,
+    ) -> float:
         words: list[str] = []
         if dx_mm:
             words.append(f"X{dx_mm:.3f}")
         if dy_mm:
             words.append(f"Y{dy_mm:.3f}")
         if not words:
-            return
+            return 0.0
         if feed_mm_min is not None:
             words.append(f"F{feed_mm_min:.3f}")
         self.command("G1 " + " ".join(words))
-        distance = abs(dx_mm) + abs(dy_mm)
-        timeout_s = max(10.0, distance / max(feed_mm_min or 1.0, 1.0) * 90.0)
-        self.wait_for_idle(timeout_s=timeout_s)
+        timeout_s = self._motion_timeout_s(
+            dx_mm=dx_mm,
+            dy_mm=dy_mm,
+            feed_mm_min=feed_mm_min,
+        )
+        if wait_for_idle:
+            self.wait_for_idle(timeout_s=timeout_s)
+        return timeout_s
 
     def run_lines(self, lines: Iterable[str]) -> None:
         for line in lines:

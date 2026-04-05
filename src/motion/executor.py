@@ -93,11 +93,33 @@ class MotionExecutor:
                 f"Invalid step profile for {direction}: pitch={pitch}, overshoot={overshoot}, pre={pre}"
             )
 
-        if pre:
-            self.jog(sign_x * pre, sign_y * pre)
+        move_feed = self._config.motion.move_feed_mm_min
+        total_drag_timeout_s = 0.0
 
-        self.engage()
-        self.jog(sign_x * main_drag, sign_y * main_drag)
+        if pre:
+            total_drag_timeout_s += self._controller.jog_relative(
+                dx_mm=sign_x * pre,
+                dy_mm=sign_y * pre,
+                feed_mm_min=move_feed,
+                wait_for_idle=False,
+            )
+
+        # Queue magnet enable between pre and main drag so the carriage does not
+        # fully stop at the pre boundary before pulling the piece.
+        self._controller.magnet_on(self._config.motion.engage_pwm)
+
+        # A delayed dwell here would reintroduce the visible stop we are trying
+        # to remove. When engage and drag PWM differ, switch immediately.
+        if self._config.motion.drag_pwm != self._config.motion.engage_pwm:
+            self._controller.magnet_on(self._config.motion.drag_pwm)
+
+        total_drag_timeout_s += self._controller.jog_relative(
+            dx_mm=sign_x * main_drag,
+            dy_mm=sign_y * main_drag,
+            feed_mm_min=move_feed,
+            wait_for_idle=False,
+        )
+        self._controller.wait_for_idle(timeout_s=total_drag_timeout_s + 5.0)
         self._controller.magnet_off()
 
         if overshoot:
