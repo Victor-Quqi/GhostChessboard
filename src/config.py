@@ -22,7 +22,7 @@ class MotionConfig:
     y_cell_pitch_mm: float = 42.0
     engage_pwm: int = 1000
     drag_pwm: int = 1000
-    move_feed_mm_min: float = 120.0
+    move_feed_mm_min: float = 600.0
     return_feed_mm_min: float = 800.0
     engage_delay_s: float = 0.20
     settle_delay_s: float = 0.10

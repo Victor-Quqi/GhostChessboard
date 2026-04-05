@@ -10,6 +10,7 @@ from typing import Iterable
 from src.config import AppConfig, load_config
 from src.machine.grbl import GrblController
 from src.motion.executor import MotionExecutor, Segment
+from src.motion.planner import BoardCell, MovePlanningError, plan_move
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,6 +40,23 @@ def build_parser() -> argparse.ArgumentParser:
     route_parser.add_argument("segments", nargs="+", help="Examples: x+ x-:2 y+")
     route_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
 
+    move_parser = subparsers.add_parser("move", help="Plan and execute a board move with BFS.")
+    move_parser.add_argument("start", help="Start cell as x,y.")
+    move_parser.add_argument("end", help="End cell as x,y.")
+    move_parser.add_argument(
+        "--occupied",
+        action="append",
+        default=[],
+        metavar="X,Y",
+        help="Occupied blocking cell on the 10x9 main board. Repeatable.",
+    )
+    move_parser.add_argument(
+        "--print-path",
+        action="store_true",
+        help="Print the resolved BFS path and merged segments before execution.",
+    )
+    move_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+
     config_parser = subparsers.add_parser("show-config", help="Print resolved config.")
     config_parser.add_argument("--json", action="store_true", help="Print as JSON.")
 
@@ -61,6 +79,14 @@ def parse_segments(raw_segments: Iterable[str]) -> list[Segment]:
         cells = int(raw_count) if separator else 1
         segments.append(Segment(direction=direction, cells=cells))
     return segments
+
+
+def parse_cell(raw_cell: str) -> BoardCell:
+    try:
+        x_text, y_text = raw_cell.split(",", 1)
+        return (int(x_text.strip()), int(y_text.strip()))
+    except ValueError as exc:
+        raise ValueError(f"Invalid cell format: {raw_cell}. Expected x,y") from exc
 
 
 def run(args: argparse.Namespace) -> None:
@@ -112,13 +138,32 @@ def run(args: argparse.Namespace) -> None:
             )
             return
 
+        if args.command == "move":
+            start = parse_cell(args.start)
+            end = parse_cell(args.end)
+            occupied = {parse_cell(token) for token in args.occupied}
+            plan = plan_move(occupied=occupied, start=start, end=end)
+
+            if args.print_path:
+                print("Path:", " -> ".join(f"({x},{y})" for x, y in plan.path))
+                print("Segments:", " ".join(f"{segment.direction}:{segment.cells}" for segment in plan.segments) or "(none)")
+
+            executor.drag_route(
+                plan.segments,
+                include_compensation=not args.no_comp,
+            )
+            return
+
     raise ValueError(f"Unsupported command: {args.command}")
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    run(args)
+    try:
+        run(args)
+    except MovePlanningError as exc:
+        parser.exit(status=2, message=f"{exc}\n")
 
 
 if __name__ == "__main__":
