@@ -22,18 +22,18 @@ class MotionConfig:
     y_cell_pitch_mm: float = 335.0 / 8.0
     engage_pwm: int = 1000
     drag_pwm: int = 1000
-    move_feed_mm_min: float = 600.0
-    return_feed_mm_min: float = 800.0
+    move_feed_mm_min: float = 2400.0
+    return_feed_mm_min: float = 24000.0
     engage_delay_s: float = 0.20
     settle_delay_s: float = 0.10
 
 
 @dataclass(slots=True)
 class CompensationConfig:
-    overshoot_x_pos_mm: float = 16.0
-    overshoot_x_neg_mm: float = 16.0
-    overshoot_y_pos_mm: float = 16.0
-    overshoot_y_neg_mm: float = 16.0
+    overshoot_x_pos_mm: float = 15.0
+    overshoot_x_neg_mm: float = 15.0
+    overshoot_y_pos_mm: float = 15.0
+    overshoot_y_neg_mm: float = 15.0
     pre_x_pos_mm: float = 15.0
     pre_x_neg_mm: float = 15.0
     pre_y_pos_mm: float = 15.0
