@@ -79,11 +79,23 @@ class GrblConfig:
 
 
 @dataclass(slots=True)
+class VisionResultConfig:
+    provider: str = "external"
+    default_result_path: str | None = None
+
+
+@dataclass(slots=True)
+class VisionConfig:
+    result: VisionResultConfig = field(default_factory=VisionResultConfig)
+
+
+@dataclass(slots=True)
 class AppConfig:
     serial: SerialConfig = field(default_factory=SerialConfig)
     grbl: GrblConfig = field(default_factory=GrblConfig)
     motion: MotionConfig = field(default_factory=MotionConfig)
     compensation: CompensationConfig = field(default_factory=CompensationConfig)
+    vision: VisionConfig = field(default_factory=VisionConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

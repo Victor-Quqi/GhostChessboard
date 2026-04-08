@@ -21,6 +21,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    vision_parser = subparsers.add_parser("vision-result", help="Load one external vision result JSON.")
+    vision_parser.add_argument("input", nargs="?", type=Path, help="Path to external vision result JSON.")
+    vision_parser.add_argument("--carriage", metavar="X,Y", help="Optional empty-carriage grid point.")
+    vision_parser.add_argument("--json", action="store_true", help="Print normalized result as JSON.")
+
     subparsers.add_parser("status", help="Read current GRBL status.")
 
     magnet_parser = subparsers.add_parser("magnet", help="Turn magnet on or off.")
@@ -156,8 +161,39 @@ def print_capture_execution(execution: CaptureExecution) -> None:
     print_route("Attacker", execution.attacker_route)
 
 
+def resolve_vision_result_path(config: AppConfig, override: Path | None) -> Path:
+    if override is not None:
+        return override
+    if config.vision.result.default_result_path is not None:
+        return Path(config.vision.result.default_result_path)
+    raise ValueError("Provide an input JSON path or set config.vision.result.default_result_path.")
+
+
 def run(args: argparse.Namespace) -> None:
     config = load_runtime_config(args)
+
+    if args.command == "vision-result":
+        from src.vision import (
+            build_board_state_from_snapshot,
+            load_external_vision_snapshot,
+            snapshot_to_dict,
+        )
+
+        snapshot = load_external_vision_snapshot(resolve_vision_result_path(config, args.input))
+        carriage = parse_cell(args.carriage) if args.carriage else None
+        board_state = build_board_state_from_snapshot(snapshot, carriage_cell=carriage)
+        payload = snapshot_to_dict(snapshot)
+        payload["board_state"] = {
+            "occupied_cells": [list(cell) for cell in sorted(board_state.occupied_cells)],
+            "filled_capture_slots": sorted(board_state.filled_capture_slots),
+            "carriage_cell": list(board_state.carriage_cell) if board_state.carriage_cell is not None else None,
+        }
+
+        if args.json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(json.dumps(payload, ensure_ascii=False))
+        return
 
     if args.command == "show-config":
         payload = config.to_dict()
