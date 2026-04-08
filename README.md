@@ -11,8 +11,15 @@
 - [技术规划](docs/tech.md)
 - [物料清单](docs/bom.md)
 - [项目进度](docs/progress.md)
+- [视觉集成](docs/vision.md)
 - [GRBL 调试记录](docs/grbl.md)
 - [电磁铁验证记录](docs/magnet.md)
+
+## 仓库边界
+
+- 当前仓库负责运动控制、棋盘状态接收与系统集成。
+- 视觉推理链路已从当前仓库解耦，后续放在同级独立仓库 `../GhostVision`。
+- 当前仓库只接收标准化外部视觉结果，不内置 OpenCV、本地采集或模型推理流程。
 
 ## 团队
 

@@ -1,48 +1,82 @@
-# 视觉识别调试
+# 视觉集成
 
-## 当前摄像头参数相关结论
+## 当前架构
 
-- 当前接入摄像头在 NUC 上识别为 `XIFT Web Camera`
-- USB 标识为 `VID:PID = 6210:ec08`
-- Linux 侧驱动为 `uvcvideo`，视频节点为 `/dev/video0`
-- 当前不采用店铺图片参数表作为依据，摄像头能力以 NUC 实测为准
+- 主仓库不再内置相机采集、OpenCV 几何校正或本地识别流程。
+- 主仓库只接收外部视觉系统产出的标准化 JSON 结果。
+- 外部视觉系统可独立部署、独立选型，可使用 `RTMPose`、`YOLO`、`ONNX` 或其他实现。
+- 视觉仓库当前规划为同级独立目录 `../GhostVision`。
 
-## 实测可用格式
+## 主仓库职责
 
-- `MJPEG`
-  - `3840x2160 @ 30fps`
-  - `2592x1944 @ 30fps`
-  - `2560x1440 @ 30fps`
-  - `1920x1080 @ 30fps`
-  - `1280x960 @ 30fps`
-  - `1280x720 @ 30fps`
-  - `800x600 @ 30fps`
-  - `640x480 @ 30fps`
-- `YUY2`
-  - `1920x1080 @ 5fps`
-  - `1280x960 @ 5fps`
-  - `1280x720 @ 10fps`
-  - `800x600 @ 10fps`
-  - `640x480 @ 30fps`
+- 读取并校验外部视觉结果。
+- 将视觉结果投影为主仓库可用的 `BoardState`。
+- 保持运动控制与视觉实现解耦。
 
-## 实测结果
+## 结果契约
 
-- 已实测跑通 `1920x1080 MJPEG @ 30fps`
-- 已实测跑通 `3840x2160 MJPEG @ 30fps`
-- `4K` 模式可输出，但当前不应直接视为原生 `4K` 传感器能力
-- 抓图观感存在明显桶形畸变，镜头属于广角档，不按常规窄角镜头处理
-- 当前无法从设备描述符直接读到可信镜头视角，后续如需精确角度，必须做标定
+入口代码：
 
-## 当前建议
+- `src/vision/contracts.py`
+- `src/vision/external.py`
 
-- 默认取流模式使用 `1920x1080 MJPEG @ 30fps`
-- USB2.0 下优先 `MJPEG`，不优先使用高分辨率 `YUY2`
-- 先锁定曝光、白平衡、增益，再做棋盘定位和透视矫正
-- 安装高度当前仍按约 `50cm` 俯拍推进
-- 识别与标定流程按“广角镜头 + 畸变校正”预留处理
+CLI 调试入口：
 
-## 后续事项
+- `python -m src.cli vision-result path/to/result.json --json`
 
-- 补做相机内参与畸变标定
-- 补记录曝光、白平衡、对焦的最终固定参数
-- 用棋盘实景验证 `1080p` 下单格像素密度是否足够
+最小 JSON 示例：
+
+```json
+{
+  "provider": "ghostvision",
+  "board_pieces": [
+    {"cell": [0, 0], "piece": "r_ju", "confidence": 0.98},
+    {"cell": [4, 0], "piece": "r_jiang", "confidence": 0.99}
+  ]
+}
+```
+
+完整 JSON 示例：
+
+```json
+{
+  "provider": "ghostvision",
+  "frame_id": "frame-001",
+  "produced_at": "2026-04-09T10:00:00+08:00",
+  "board_pieces": [
+    {"cell": [0, 0], "piece": "r_ju", "confidence": 0.98},
+    {"cell": [4, 0], "piece": "r_jiang", "confidence": 0.99}
+  ],
+  "capture_pieces": [
+    {"slot": 3, "piece": "b_zu", "confidence": 0.87}
+  ],
+  "pose": {
+    "corners_px": {
+      "top_left": [10.0, 20.0],
+      "top_right": [110.0, 20.0],
+      "bottom_right": [110.0, 220.0],
+      "bottom_left": [10.0, 220.0]
+    },
+    "main_board_points_px": {
+      "0,0": [11.0, 21.0],
+      "4,0": [55.0, 21.0]
+    },
+    "confidence": 0.95
+  },
+  "metadata": {
+    "model": "rtmpose-4pt"
+  }
+}
+```
+
+## 约束
+
+- `board_pieces` 中每个 `cell` 必须是主棋盘坐标，范围 `x=0..9`、`y=0..8`。
+- `capture_pieces` 中每个 `slot` 必须在 `0..19`。
+- 同一 `cell` 和同一 `slot` 不允许重复。
+- `pose` 为可选调试信息，不参与主仓库内部几何计算。
+
+## 后续方向
+
+- 外部视觉服务单独维护模型、依赖和推理链路。
+- 若后续接入在线通信，可在当前 JSON 契约之上扩展成本地 IPC、HTTP 或串口协议。
