@@ -22,6 +22,7 @@
 
 # User config
 .vscode
+*.code-workspace
 .claude
 .kilocode
 openspec
