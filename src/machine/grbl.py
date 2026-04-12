@@ -108,6 +108,8 @@ class GrblController:
 
     def command(self, line: str, response_window_s: float = 0.6) -> list[str]:
         self._transport.write_line(line)
+        if response_window_s <= 0:
+            return []
         lines = self._transport.read_lines(response_window_s)
         for item in lines:
             if item.startswith("error:"):
@@ -118,7 +120,12 @@ class GrblController:
         for line in self._config.grbl.startup_commands:
             self.command(line)
 
+    def _drain_pending(self) -> None:
+        """Discard buffered data (stale ok's from fire-and-forget commands)."""
+        self._transport.read_lines(0.05)
+
     def status(self) -> GrblStatus:
+        self._drain_pending()
         lines = self.command("?", response_window_s=0.4)
         for line in lines:
             if line.startswith("<"):
@@ -138,11 +145,11 @@ class GrblController:
             time.sleep(poll_interval_s)
         raise TimeoutError(f"Timed out waiting for Idle. Last status: {last_status}")
 
-    def magnet_on(self, pwm: int) -> None:
-        self.command(f"M3 S{int(pwm)}")
+    def magnet_on(self, pwm: int, *, wait_for_ack: bool = True) -> None:
+        self.command(f"M3 S{int(pwm)}", response_window_s=0.6 if wait_for_ack else 0.0)
 
-    def magnet_off(self) -> None:
-        self.command("M5")
+    def magnet_off(self, *, wait_for_ack: bool = True) -> None:
+        self.command("M5", response_window_s=0.6 if wait_for_ack else 0.0)
 
     def dwell(self, seconds: float) -> None:
         self.command(f"G4 P{seconds:.3f}")
@@ -159,6 +166,7 @@ class GrblController:
         dy_mm: float = 0.0,
         feed_mm_min: float | None = None,
         wait_for_idle: bool = True,
+        wait_for_ack: bool | None = None,
     ) -> float:
         words: list[str] = []
         if dx_mm:
@@ -169,7 +177,12 @@ class GrblController:
             return 0.0
         if feed_mm_min is not None:
             words.append(f"F{feed_mm_min:.3f}")
-        self.command("G1 " + " ".join(words))
+        if wait_for_ack is None:
+            wait_for_ack = wait_for_idle
+        self.command(
+            "G1 " + " ".join(words),
+            response_window_s=0.6 if wait_for_ack else 0.0,
+        )
         timeout_s = self._motion_timeout_s(
             dx_mm=dx_mm,
             dy_mm=dy_mm,

@@ -58,6 +58,26 @@ class MotionExecutor:
             return self._config.motion.y_cell_pitch_mm
         raise ValueError(f"Unsupported direction: {direction}")
 
+    def _overshoot_pwm_profile(self) -> list[int | None]:
+        start_pwm = self._config.motion.overshoot_pwm
+        end_pwm = self._config.motion.overshoot_pwm_end
+        segments = max(1, self._config.motion.overshoot_pwm_segments)
+
+        if start_pwm is None:
+            return [None]
+        if end_pwm is None or segments == 1 or start_pwm == end_pwm:
+            return [start_pwm]
+
+        if segments == 2:
+            return [start_pwm, end_pwm]
+
+        pwm_values: list[int] = []
+        for index in range(segments):
+            ratio = index / (segments - 1)
+            pwm = round(start_pwm + (end_pwm - start_pwm) * ratio)
+            pwm_values.append(pwm)
+        return pwm_values
+
     def compensated_distance_mm(self, direction: str, cells: int = 1, include_compensation: bool = True) -> float:
         if cells <= 0:
             raise ValueError("cells must be positive.")
@@ -87,11 +107,13 @@ class MotionExecutor:
         overshoot = self._config.compensation.overshoot_for(direction) if include_compensation else 0.0
         pre = self._config.compensation.pre_for(direction) if include_compensation else 0.0
 
-        main_drag = pitch + overshoot - pre
-        if main_drag <= 0:
+        total_drag = pitch + overshoot - pre
+        if total_drag <= 0:
             raise ValueError(
                 f"Invalid step profile for {direction}: pitch={pitch}, overshoot={overshoot}, pre={pre}"
             )
+        drag_to_target = min(total_drag, max(pitch - pre, 0.0))
+        overshoot_drag = total_drag - drag_to_target
 
         move_feed = self._config.motion.move_feed_mm_min
         total_drag_timeout_s = 0.0
@@ -102,23 +124,47 @@ class MotionExecutor:
                 dy_mm=sign_y * pre,
                 feed_mm_min=move_feed,
                 wait_for_idle=False,
+                wait_for_ack=False,
             )
 
         # Queue magnet enable between pre and main drag so the carriage does not
         # fully stop at the pre boundary before pulling the piece.
-        self._controller.magnet_on(self._config.motion.engage_pwm)
+        self._controller.magnet_on(self._config.motion.engage_pwm, wait_for_ack=False)
 
         # A delayed dwell here would reintroduce the visible stop we are trying
         # to remove. When engage and drag PWM differ, switch immediately.
         if self._config.motion.drag_pwm != self._config.motion.engage_pwm:
-            self._controller.magnet_on(self._config.motion.drag_pwm)
+            self._controller.magnet_on(self._config.motion.drag_pwm, wait_for_ack=False)
 
-        total_drag_timeout_s += self._controller.jog_relative(
-            dx_mm=sign_x * main_drag,
-            dy_mm=sign_y * main_drag,
-            feed_mm_min=move_feed,
-            wait_for_idle=False,
-        )
+        if drag_to_target:
+            total_drag_timeout_s += self._controller.jog_relative(
+                dx_mm=sign_x * drag_to_target,
+                dy_mm=sign_y * drag_to_target,
+                feed_mm_min=move_feed,
+                wait_for_idle=False,
+                wait_for_ack=False,
+            )
+
+        if overshoot_drag:
+            pwm_profile = self._overshoot_pwm_profile()
+            segment_count = len(pwm_profile)
+            previous_distance = 0.0
+
+            for index, pwm in enumerate(pwm_profile, start=1):
+                if pwm is not None and pwm != self._config.motion.drag_pwm:
+                    self._controller.magnet_on(pwm, wait_for_ack=False)
+
+                target_distance = overshoot_drag * index / segment_count
+                segment_distance = target_distance - previous_distance
+                previous_distance = target_distance
+                total_drag_timeout_s += self._controller.jog_relative(
+                    dx_mm=sign_x * segment_distance,
+                    dy_mm=sign_y * segment_distance,
+                    feed_mm_min=move_feed,
+                    wait_for_idle=False,
+                    wait_for_ack=False,
+                )
+
         self._controller.wait_for_idle(timeout_s=total_drag_timeout_s + 5.0)
         self._controller.magnet_off()
 

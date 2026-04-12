@@ -18,10 +18,13 @@ class SerialConfig:
 
 @dataclass(slots=True)
 class MotionConfig:
-    x_cell_pitch_mm: float = 371.0 / 9.0
-    y_cell_pitch_mm: float = 335.0 / 8.0
+    x_cell_pitch_mm: float = 370.0 / 9.0
+    y_cell_pitch_mm: float = 337.0 / 8.0
     engage_pwm: int = 1000
     drag_pwm: int = 1000
+    overshoot_pwm: int | None = 500
+    overshoot_pwm_end: int | None = None
+    overshoot_pwm_segments: int = 1
     move_feed_mm_min: float = 2400.0
     return_feed_mm_min: float = 24000.0
     engage_delay_s: float = 0.20
