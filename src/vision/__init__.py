@@ -12,6 +12,7 @@ from src.vision.external import (
     load_external_vision_snapshot,
     snapshot_to_dict,
 )
+from src.vision.fen import normalize_xiangqi_side_to_move, snapshot_to_xiangqi_fen
 
 __all__ = [
     "BOARD_CORNER_NAMES",
@@ -21,5 +22,7 @@ __all__ = [
     "ExternalVisionSnapshot",
     "build_board_state_from_snapshot",
     "load_external_vision_snapshot",
+    "normalize_xiangqi_side_to_move",
     "snapshot_to_dict",
+    "snapshot_to_xiangqi_fen",
 ]
