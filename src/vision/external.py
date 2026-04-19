@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.board import BoardState
+from src.board_state import BoardState
 from src.coords import GridPoint, validate_grid_point, validate_main_board_cell
 from src.vision.contracts import (
     BOARD_CORNER_NAMES,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.motion.executor import Segment
+from src.motion.contracts import Segment
 from src.pathfinder import find_path
 
 BoardCell = tuple[int, int]

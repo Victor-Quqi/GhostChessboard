@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Iterable
 
 from src.config import AppConfig
 from src.machine.grbl import GrblController
-
-
-@dataclass(slots=True)
-class Segment:
-    direction: str
-    cells: int = 1
+from src.motion.contracts import Segment
 
 
 class MotionExecutor:
