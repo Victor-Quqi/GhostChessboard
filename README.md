@@ -26,4 +26,4 @@
 | 成员 | 方向 |
 |---|---|
 | [@Victor-Quqi](https://github.com/Victor-Quqi) | 软件（视觉/AI/运动控制） |
-| [@AmakusaMika](https://github.com/AmakusaMika) | 硬件 & 环境配置 |
+| [@AmakusaMika](https://github.com/AmakusaMika) | 演示视频与 pre 准备 |

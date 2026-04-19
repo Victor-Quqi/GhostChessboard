@@ -1,5 +1,12 @@
 # 视觉集成
 
+## 当前状态
+
+- `GhostVision` 已在 NUC 上打通抓图、去畸变、棋盘定位、棋子识别和标准结果导出。
+- `GhostChessboard` 已可读取该结果，转换为 `BoardState` / FEN，并调用 `Pikafish` 生成走法。
+- 当前已验证“标准开局 → 识别 → FEN → 引擎出步”链路可直接跑通。
+- 当前测试棋子为规整贴纸方案，直径约 `28mm`。
+
 ## 当前架构
 
 - 主仓库不再内置相机采集、OpenCV 几何校正或本地识别流程。
@@ -25,19 +32,7 @@ CLI 调试入口：
 
 - `python -m src.cli vision-result path/to/result.json --json`
 
-最小 JSON 示例：
-
-```json
-{
-  "provider": "ghostvision",
-  "board_pieces": [
-    {"cell": [0, 0], "piece": "r_ju", "confidence": 0.98},
-    {"cell": [4, 0], "piece": "r_jiang", "confidence": 0.99}
-  ]
-}
-```
-
-完整 JSON 示例：
+JSON 示例（必填：`provider`、`board_pieces`；`frame_id`、`produced_at`、`capture_pieces`、`pose`、`metadata` 均为可选）：
 
 ```json
 {
@@ -81,3 +76,4 @@ CLI 调试入口：
 
 - 外部视觉服务单独维护模型、依赖和推理链路。
 - 若后续接入在线通信，可在当前 JSON 契约之上扩展成本地 IPC、HTTP 或串口协议。
+- 后续重点转向更多盘面样本下的识别稳定性，而不是继续修改主仓库接口。
