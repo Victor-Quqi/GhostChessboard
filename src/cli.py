@@ -5,13 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
-from src.board import BoardController, BoardState, BoardStateError, CaptureExecution, ExecutedRoute
 from src.config import AppConfig, load_config
-from src.machine.grbl import GrblController
-from src.motion.executor import MotionExecutor, Segment
-from src.motion.planner import BoardCell, MovePlanningError
+
+if TYPE_CHECKING:
+    from src.board import BoardController, CaptureExecution, ExecutedRoute
+    from src.board_state import BoardState, BoardStateError
+    from src.engine import EngineError
+    from src.machine.grbl import GrblController
+    from src.motion.contracts import Segment
+    from src.motion.executor import MotionExecutor
+    from src.motion.planner import BoardCell, MovePlanningError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +30,28 @@ def build_parser() -> argparse.ArgumentParser:
     vision_parser.add_argument("input", nargs="?", type=Path, help="Path to external vision result JSON.")
     vision_parser.add_argument("--carriage", metavar="X,Y", help="Optional empty-carriage grid point.")
     vision_parser.add_argument("--json", action="store_true", help="Print normalized result as JSON.")
+    vision_parser.add_argument(
+        "--fen-side",
+        metavar="SIDE",
+        help="Also serialize the result as Xiangqi FEN. Use 'red' or 'black' for clarity; 'w'/'b' remain supported.",
+    )
+
+    bestmove_parser = subparsers.add_parser("bestmove", help="Resolve a Xiangqi best move through a UCI engine.")
+    bestmove_source_group = bestmove_parser.add_mutually_exclusive_group(required=True)
+    bestmove_source_group.add_argument("--fen", help="Input Xiangqi FEN string.")
+    bestmove_source_group.add_argument("--vision-result", type=Path, help="Input normalized vision result JSON path.")
+    bestmove_parser.add_argument(
+        "--fen-side",
+        default="red",
+        metavar="SIDE",
+        help="Side to move when deriving FEN from a vision result. Use 'red' or 'black'; 'w'/'b' remain supported.",
+    )
+    bestmove_parser.add_argument("--engine", type=Path, help="Optional engine executable path.")
+    bestmove_parser.add_argument("--depth", type=int, default=15, help="Search depth.")
+    bestmove_parser.add_argument("--threads", type=int, help="Optional engine thread count.")
+    bestmove_parser.add_argument("--hash-mb", type=int, help="Optional transposition-table size in MiB.")
+    bestmove_parser.add_argument("--timeout-s", type=float, default=15.0, help="Search timeout in seconds.")
+    bestmove_parser.add_argument("--json", action="store_true", help="Print the engine request/result as JSON.")
 
     subparsers.add_parser("status", help="Read current GRBL status.")
 
@@ -120,7 +147,9 @@ def load_runtime_config(args: argparse.Namespace) -> AppConfig:
     return config
 
 
-def parse_segments(raw_segments: Iterable[str]) -> list[Segment]:
+def parse_segments(raw_segments: Iterable[str]) -> list["Segment"]:
+    from src.motion.contracts import Segment
+
     segments: list[Segment] = []
     for token in raw_segments:
         direction, separator, raw_count = token.partition(":")
@@ -131,7 +160,7 @@ def parse_segments(raw_segments: Iterable[str]) -> list[Segment]:
     return segments
 
 
-def parse_cell(raw_cell: str) -> BoardCell:
+def parse_cell(raw_cell: str) -> "BoardCell":
     try:
         x_text, y_text = raw_cell.split(",", 1)
         return (int(x_text.strip()), int(y_text.strip()))
@@ -139,7 +168,7 @@ def parse_cell(raw_cell: str) -> BoardCell:
         raise ValueError(f"Invalid cell format: {raw_cell}. Expected x,y") from exc
 
 
-def print_route(label: str, execution: ExecutedRoute) -> None:
+def print_route(label: str, execution: "ExecutedRoute") -> None:
     """Print a single executed route in a compact debug format."""
     if execution.approach_from is None:
         print(f"{label} approach: (assumed aligned)")
@@ -154,7 +183,7 @@ def print_route(label: str, execution: ExecutedRoute) -> None:
     )
 
 
-def print_capture_execution(execution: CaptureExecution) -> None:
+def print_capture_execution(execution: "CaptureExecution") -> None:
     """Print both legs of a capture operation."""
     print(f"Capture slot: {execution.capture_slot}")
     print_route("Victim", execution.victim_route)
@@ -176,6 +205,7 @@ def run(args: argparse.Namespace) -> None:
         from src.vision import (
             build_board_state_from_snapshot,
             load_external_vision_snapshot,
+            snapshot_to_xiangqi_fen,
             snapshot_to_dict,
         )
 
@@ -188,6 +218,8 @@ def run(args: argparse.Namespace) -> None:
             "filled_capture_slots": sorted(board_state.filled_capture_slots),
             "carriage_cell": list(board_state.carriage_cell) if board_state.carriage_cell is not None else None,
         }
+        if args.fen_side is not None:
+            payload["fen"] = snapshot_to_xiangqi_fen(snapshot, side_to_move=args.fen_side)
 
         if args.json:
             print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -202,6 +234,41 @@ def run(args: argparse.Namespace) -> None:
         else:
             print(payload)
         return
+
+    if args.command == "bestmove":
+        from src.engine import get_best_move
+        from src.vision import load_external_vision_snapshot, snapshot_to_xiangqi_fen
+
+        if args.fen is not None:
+            fen = args.fen
+        else:
+            snapshot = load_external_vision_snapshot(args.vision_result)
+            fen = snapshot_to_xiangqi_fen(snapshot, side_to_move=args.fen_side)
+
+        best_move = get_best_move(
+            fen,
+            engine_path=args.engine,
+            depth=args.depth,
+            threads=args.threads,
+            hash_mb=args.hash_mb,
+            timeout_s=args.timeout_s,
+        )
+        if args.json:
+            payload = {
+                "fen": fen,
+                "best_move": best_move,
+                "depth": args.depth,
+                "engine_path": str(args.engine) if args.engine is not None else None,
+            }
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            print(best_move)
+        return
+
+    from src.board import BoardController
+    from src.board_state import BoardState
+    from src.machine.grbl import GrblController
+    from src.motion.executor import MotionExecutor
 
     with GrblController(config) as controller:
         controller.initialize()
@@ -295,8 +362,16 @@ def main() -> None:
     args = parser.parse_args()
     try:
         run(args)
-    except (BoardStateError, MovePlanningError) as exc:
+    except _handled_cli_errors() as exc:
         parser.exit(status=2, message=f"{exc}\n")
+
+
+def _handled_cli_errors() -> tuple[type[Exception], ...]:
+    from src.board_state import BoardStateError
+    from src.engine import EngineError
+    from src.motion.planner import MovePlanningError
+
+    return (BoardStateError, EngineError, MovePlanningError)
 
 
 if __name__ == "__main__":
