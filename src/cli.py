@@ -83,6 +83,16 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="X,Y",
         help="Additional occupied blocking cell on the 10x9 main board. Repeatable.",
     )
+    move_occupancy_source = move_parser.add_mutually_exclusive_group()
+    move_occupancy_source.add_argument(
+        "--from-fen",
+        help="Derive initial occupancy from a Xiangqi FEN string. Start cell is added automatically.",
+    )
+    move_occupancy_source.add_argument(
+        "--from-vision-result",
+        type=Path,
+        help="Derive initial occupancy and capture-area slots from an external vision result JSON.",
+    )
     move_parser.add_argument(
         "--carriage",
         metavar="X,Y",
@@ -106,6 +116,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="X,Y",
         help="Additional occupied blocking cell on the 10x9 main board. Repeatable.",
+    )
+    capture_occupancy_source = capture_parser.add_mutually_exclusive_group()
+    capture_occupancy_source.add_argument(
+        "--from-fen",
+        help="Derive initial occupancy from a Xiangqi FEN string. Attacker and target are added automatically.",
+    )
+    capture_occupancy_source.add_argument(
+        "--from-vision-result",
+        type=Path,
+        help="Derive initial occupancy and capture-area slots from an external vision result JSON.",
     )
     capture_parser.add_argument(
         "--filled-slot",
@@ -196,6 +216,33 @@ def resolve_vision_result_path(config: AppConfig, override: Path | None) -> Path
     if config.vision.result.default_result_path is not None:
         return Path(config.vision.result.default_result_path)
     raise ValueError("Provide an input JSON path or set config.vision.result.default_result_path.")
+
+
+def resolve_initial_board_state(args: argparse.Namespace) -> "BoardState":
+    """Build the initial BoardState for move/capture commands from CLI args.
+
+    Mutually exclusive sources: --from-fen, --from-vision-result, else the
+    manual --occupied / --filled-slot switches. Mandatory cells (start, end,
+    target) are added by the caller after this returns.
+    """
+    from src.board_state import BoardState
+    from src.vision import (
+        board_state_from_xiangqi_fen,
+        build_board_state_from_snapshot,
+        load_external_vision_snapshot,
+    )
+
+    from_fen = getattr(args, "from_fen", None)
+    from_vision = getattr(args, "from_vision_result", None)
+
+    if from_fen is not None:
+        return board_state_from_xiangqi_fen(from_fen)
+    if from_vision is not None:
+        return build_board_state_from_snapshot(load_external_vision_snapshot(from_vision))
+
+    occupied = {parse_cell(token) for token in getattr(args, "occupied", [])}
+    filled_slots = set(getattr(args, "filled_slot", []))
+    return BoardState(occupied_cells=occupied, filled_capture_slots=filled_slots)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -311,15 +358,10 @@ def run(args: argparse.Namespace) -> None:
         if args.command == "move":
             start = parse_cell(args.start)
             end = parse_cell(args.end)
-            occupied = {parse_cell(token) for token in args.occupied}
-            carriage = parse_cell(args.carriage) if args.carriage else start
-            board = BoardController(
-                executor,
-                BoardState(
-                    occupied_cells=occupied | {start},
-                    carriage_cell=carriage,
-                ),
-            )
+            initial_state = resolve_initial_board_state(args)
+            initial_state.occupied_cells.add(start)
+            initial_state.carriage_cell = parse_cell(args.carriage) if args.carriage else start
+            board = BoardController(executor, initial_state)
             execution = board.move_piece(
                 start=start,
                 end=end,
@@ -333,16 +375,10 @@ def run(args: argparse.Namespace) -> None:
         if args.command == "capture":
             start = parse_cell(args.start)
             target = parse_cell(args.target)
-            occupied = {parse_cell(token) for token in args.occupied}
-            carriage = parse_cell(args.carriage) if args.carriage else target
-            board = BoardController(
-                executor,
-                BoardState(
-                    occupied_cells=occupied | {start, target},
-                    filled_capture_slots=set(args.filled_slot),
-                    carriage_cell=carriage,
-                ),
-            )
+            initial_state = resolve_initial_board_state(args)
+            initial_state.occupied_cells.update({start, target})
+            initial_state.carriage_cell = parse_cell(args.carriage) if args.carriage else target
+            board = BoardController(executor, initial_state)
             execution = board.capture_piece(
                 start=start,
                 target=target,

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from src.coords import validate_main_board_cell
+from src.board_state import BoardState
+from src.coords import GridPoint, validate_grid_point, validate_main_board_cell
 from src.vision.contracts import ExternalVisionSnapshot
 
 CONTRACT_PIECE_TO_FEN = {
@@ -21,6 +22,8 @@ CONTRACT_PIECE_TO_FEN = {
     "r_pao": "C",
     "r_zu": "P",
 }
+
+VALID_FEN_PIECE_CHARS = frozenset("kabnrcpKABNRCP")
 
 SIDE_TO_MOVE_ALIASES = {
     "w": "w",
@@ -93,3 +96,49 @@ def normalize_xiangqi_side_to_move(side_to_move: str) -> str:
             "side_to_move must be one of 'red', 'black', 'r', 'b', 'w', or 'white', "
             f"got {side_to_move!r}"
         ) from exc
+
+
+def board_state_from_xiangqi_fen(
+    fen: str,
+    *,
+    carriage_cell: GridPoint | None = None,
+    y_zero_is_red_left: bool = True,
+) -> BoardState:
+    """Parse a Xiangqi FEN placement into a BoardState occupancy set.
+
+    The inverse of ``snapshot_to_xiangqi_fen`` but only retains which cells are
+    occupied; piece identity is discarded. Capture-area slots are always empty
+    because standard Xiangqi FEN does not encode them.
+    """
+
+    if carriage_cell is not None:
+        validate_grid_point(carriage_cell)
+
+    placement = fen.strip().split(" ", 1)[0]
+    ranks = placement.split("/")
+    if len(ranks) != 10:
+        raise ValueError(f"Xiangqi FEN must have 10 ranks separated by '/', got {len(ranks)}.")
+
+    col_indices = list(range(8, -1, -1)) if y_zero_is_red_left else list(range(0, 9))
+
+    occupied: set[tuple[int, int]] = set()
+    for rank_index, rank in enumerate(ranks):
+        x_index = 9 - rank_index
+        column_cursor = 0
+        for symbol in rank:
+            if symbol.isdigit():
+                column_cursor += int(symbol)
+                continue
+            if symbol not in VALID_FEN_PIECE_CHARS:
+                raise ValueError(f"Unsupported FEN symbol {symbol!r} in rank {rank_index}.")
+            if column_cursor >= 9:
+                raise ValueError(f"FEN rank {rank_index} overflows 9 columns: {rank!r}")
+            y_index = col_indices[column_cursor]
+            cell = (x_index, y_index)
+            validate_main_board_cell(cell)
+            occupied.add(cell)
+            column_cursor += 1
+        if column_cursor != 9:
+            raise ValueError(f"FEN rank {rank_index} does not cover 9 columns: {rank!r}")
+
+    return BoardState(occupied_cells=occupied, carriage_cell=carriage_cell)
