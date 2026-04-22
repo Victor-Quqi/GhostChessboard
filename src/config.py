@@ -98,6 +98,7 @@ class VisionProbeConfig:
     calibration_path: str = "/home/ghost/GhostVision/calibrations/nuc_primary_1920x1080.json"
     backend_root: str = "/home/ghost/tmp_ccr/repo"
     artifacts_dir: str = "/home/ghost/GhostChessboard/runtime/verify"
+    keep_recent_runs: int = 5
     snapshot_timeout_s: float = 20.0
     recognize_timeout_s: float = 45.0
     flip_x: bool = False

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -58,7 +57,11 @@ class FakeRunner:
 
 class GhostVisionCliProbeTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp_dir = tempfile.mkdtemp()
+        tmp_root = Path(__file__).resolve().parent / ".tmp"
+        tmp_root.mkdir(exist_ok=True)
+        self.tmp_dir = str(tmp_root / self._testMethodName)
+        _rm_tree(self.tmp_dir)
+        Path(self.tmp_dir).mkdir(parents=True, exist_ok=True)
         self.addCleanup(_rm_tree, self.tmp_dir)
 
     def _config(self, **overrides) -> VisionProbeConfig:
@@ -97,7 +100,9 @@ class GhostVisionCliProbeTests(unittest.TestCase):
 
         probe.capture()
 
-        artifacts = list(Path(self.tmp_dir).iterdir())
+        run_dirs = _run_dirs(self.tmp_dir)
+        self.assertEqual(len(run_dirs), 1)
+        artifacts = list(run_dirs[0].iterdir())
         self.assertEqual(len(artifacts), 3)
         suffixes = sorted(path.name.split("_")[-1] for path in artifacts)
         self.assertEqual(suffixes, ["crop.jpg", "raw.jpg", "result.json"])
@@ -141,10 +146,52 @@ class GhostVisionCliProbeTests(unittest.TestCase):
         probe.capture()
         probe.capture()
 
-        result_files = sorted(Path(self.tmp_dir).glob("*_result.json"))
+        run_dirs = _run_dirs(self.tmp_dir)
+        self.assertEqual(len(run_dirs), 1)
+        result_files = sorted(run_dirs[0].glob("*_result.json"))
         self.assertEqual(len(result_files), 2)
         prefixes = [path.name.rsplit("_", 1)[0] for path in result_files]
         self.assertNotEqual(prefixes[0], prefixes[1])
+
+    def test_capture_reuses_same_run_directory(self) -> None:
+        runner = FakeRunner()
+        probe = GhostVisionCliProbe(self._config(), run_process=runner)
+
+        probe.capture()
+        probe.capture()
+
+        run_dirs = _run_dirs(self.tmp_dir)
+        self.assertEqual(len(run_dirs), 1)
+        self.assertEqual(len(list(run_dirs[0].iterdir())), 6)
+
+    def test_capture_prunes_old_run_directories(self) -> None:
+        for index in range(6):
+            run_dir = Path(self.tmp_dir) / f"run_20260420_08480{index}_{index:09d}"
+            run_dir.mkdir()
+            (run_dir / "stale.txt").write_text("x", encoding="utf-8")
+
+        runner = FakeRunner()
+        probe = GhostVisionCliProbe(self._config(keep_recent_runs=5), run_process=runner)
+
+        probe.capture()
+
+        run_dirs = _run_dirs(self.tmp_dir)
+        self.assertEqual(len(run_dirs), 5)
+        self.assertFalse((Path(self.tmp_dir) / "run_20260420_084800_000000000").exists())
+        self.assertFalse((Path(self.tmp_dir) / "run_20260420_084801_000000001").exists())
+
+    def test_capture_removes_legacy_flat_artifacts(self) -> None:
+        _touch(str(Path(self.tmp_dir) / "verify_1776645994_009_raw.jpg"))
+        _touch(str(Path(self.tmp_dir) / "verify_1776645994_009_crop.jpg"))
+        _write(str(Path(self.tmp_dir) / "verify_1776645994_009_result.json"), SAMPLE_RESULT_JSON)
+
+        runner = FakeRunner()
+        probe = GhostVisionCliProbe(self._config(), run_process=runner)
+
+        probe.capture()
+
+        self.assertEqual(list(Path(self.tmp_dir).glob("verify_*")), [])
+        self.assertEqual(len(_run_dirs(self.tmp_dir)), 1)
 
 
 def _detect_stage(cmd: list[str]) -> str:
@@ -178,6 +225,14 @@ def _rm_tree(path: str) -> None:
     import shutil
 
     shutil.rmtree(path, ignore_errors=True)
+
+
+def _run_dirs(path: str) -> list[Path]:
+    return sorted(
+        child
+        for child in Path(path).iterdir()
+        if child.is_dir() and child.name.startswith("run_")
+    )
 
 
 if __name__ == "__main__":
