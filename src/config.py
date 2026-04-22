@@ -75,6 +75,8 @@ class GrblConfig:
         default_factory=lambda: [
             "$30=1000",
             "$32=0",
+            "$120=500",
+            "$121=500",
             "G21",
             "G91",
         ]
@@ -88,8 +90,24 @@ class VisionResultConfig:
 
 
 @dataclass(slots=True)
+class VisionProbeConfig:
+    """Settings for a live GhostVision probe used during scenario runs."""
+
+    ghostvision_bin: str = "/home/ghost/.venvs/ghostvision/bin/ghostvision"
+    camera_device: str = "/dev/video0"
+    calibration_path: str = "/home/ghost/GhostVision/calibrations/nuc_primary_1920x1080.json"
+    backend_root: str = "/home/ghost/tmp_ccr/repo"
+    artifacts_dir: str = "/home/ghost/GhostChessboard/runtime/verify"
+    snapshot_timeout_s: float = 20.0
+    recognize_timeout_s: float = 45.0
+    flip_x: bool = False
+    flip_y: bool = False
+
+
+@dataclass(slots=True)
 class VisionConfig:
     result: VisionResultConfig = field(default_factory=VisionResultConfig)
+    probe: VisionProbeConfig = field(default_factory=VisionProbeConfig)
 
 
 @dataclass(slots=True)

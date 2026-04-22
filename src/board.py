@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from src.board_state import BoardCell, BoardState, BoardStateError
 from src.coords import (
     GridPoint,
+    capture_slot_to_cell,
     grid_to_xy,
     validate_grid_point,
     validate_main_board_cell,

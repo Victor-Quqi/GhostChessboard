@@ -150,6 +150,18 @@ def build_parser() -> argparse.ArgumentParser:
     capture_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
     capture_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
 
+    scenario_parser = subparsers.add_parser("scenario", help="Run a scenario JSON file inside one GRBL session.")
+    scenario_parser.add_argument("path", type=Path, help="Path to the scenario JSON file.")
+    scenario_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
+    scenario_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
+    scenario_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    scenario_parser.add_argument(
+        "--verify-vision",
+        action="store_true",
+        help="After every step, capture a GhostVision snapshot and compare with expected occupancy.",
+    )
+    scenario_parser.add_argument("--json", action="store_true", help="Emit the run summary as JSON.")
+
     config_parser = subparsers.add_parser("show-config", help="Print resolved config.")
     config_parser.add_argument("--json", action="store_true", help="Print as JSON.")
 
@@ -208,6 +220,54 @@ def print_capture_execution(execution: "CaptureExecution") -> None:
     print(f"Capture slot: {execution.capture_slot}")
     print_route("Victim", execution.victim_route)
     print_route("Attacker", execution.attacker_route)
+
+
+def _scenario_summary_to_dict(summary) -> dict:
+    from src.board import CaptureExecution
+
+    def _route_payload(route) -> dict:
+        return {
+            "approach_from": list(route.approach_from) if route.approach_from is not None else None,
+            "path": [list(cell) for cell in route.path],
+            "segments": [
+                {"direction": segment.direction, "cells": segment.cells}
+                for segment in route.segments
+            ],
+        }
+
+    def _execution_payload(execution) -> dict | None:
+        if execution is None:
+            return None
+        if isinstance(execution, CaptureExecution):
+            return {
+                "kind": "capture",
+                "capture_slot": execution.capture_slot,
+                "victim_route": _route_payload(execution.victim_route),
+                "attacker_route": _route_payload(execution.attacker_route),
+            }
+        return {"kind": "move", "route": _route_payload(execution)}
+
+    return {
+        "name": summary.name,
+        "total_steps": summary.total_steps,
+        "executed_steps": summary.executed_steps,
+        "halted_at_index": summary.halted_at_index,
+        "halt_reason": summary.halt_reason,
+        "results": [
+            {
+                "index": result.index,
+                "kind": result.kind,
+                "start": list(result.start),
+                "end": list(result.end),
+                "executed": result.executed,
+                "error": result.error,
+                "visual_status": result.visual_status,
+                "visual_diff": result.visual_diff,
+                "execution": _execution_payload(result.execution),
+            }
+            for result in summary.results
+        ],
+    }
 
 
 def resolve_vision_result_path(config: AppConfig, override: Path | None) -> Path:
@@ -390,6 +450,60 @@ def run(args: argparse.Namespace) -> None:
                 print_capture_execution(execution)
             return
 
+        if args.command == "scenario":
+            from src.board import CaptureExecution
+            from src.scenario import load_scenario, run_scenario
+
+            scenario = load_scenario(args.path)
+            board = BoardController(executor, scenario.initial_state)
+
+            probe = None
+            if args.verify_vision:
+                from src.vision.probe import GhostVisionCliProbe
+
+                probe = GhostVisionCliProbe(config=config.vision.probe)
+
+            def _on_step_start(index: int, step) -> None:
+                slot_hint = f" slot={step.capture_slot}" if step.capture_slot is not None else ""
+                print(
+                    f"[{index + 1}/{len(scenario.steps)}] {step.kind} "
+                    f"({step.start[0]},{step.start[1]}) -> ({step.end[0]},{step.end[1]}){slot_hint}"
+                )
+
+            def _on_step_done(result) -> None:
+                if not result.executed:
+                    print(f"  ! execution failed: {result.error}")
+                    return
+                if isinstance(result.execution, CaptureExecution):
+                    print_capture_execution(result.execution)
+                else:
+                    print_route("  move", result.execution)
+                diff_suffix = ""
+                if result.visual_diff is not None:
+                    diff_suffix = f" diff={json.dumps(result.visual_diff, ensure_ascii=False)}"
+                print(f"  visual: {result.visual_status}{diff_suffix}")
+
+            summary = run_scenario(
+                scenario,
+                board,
+                probe=probe,
+                on_step_start=None if args.json else _on_step_start,
+                on_step_done=None if args.json else _on_step_done,
+            )
+
+            if args.json:
+                print(json.dumps(_scenario_summary_to_dict(summary), indent=2, ensure_ascii=False))
+            else:
+                print(
+                    f"Scenario {summary.name!r}: executed {summary.executed_steps}/"
+                    f"{summary.total_steps} steps."
+                )
+                if summary.halted_at_index is not None:
+                    print(f"Halted at step {summary.halted_at_index + 1}: {summary.halt_reason}")
+            if summary.halted_at_index is not None:
+                raise SystemExit(3)
+            return
+
     raise ValueError(f"Unsupported command: {args.command}")
 
 
@@ -406,8 +520,9 @@ def _handled_cli_errors() -> tuple[type[Exception], ...]:
     from src.board_state import BoardStateError
     from src.engine import EngineError
     from src.motion.planner import MovePlanningError
+    from src.scenario import ScenarioError
 
-    return (BoardStateError, EngineError, MovePlanningError)
+    return (BoardStateError, EngineError, MovePlanningError, ScenarioError)
 
 
 if __name__ == "__main__":

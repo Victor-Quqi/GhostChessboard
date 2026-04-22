@@ -1,0 +1,177 @@
+{
+  "name": "A_pikafish_opening",
+  "initial": {
+    "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+    "carriage": [
+      0,
+      0
+    ]
+  },
+  "steps": [
+    {
+      "kind": "move",
+      "start": [
+        2,
+        1
+      ],
+      "end": [
+        2,
+        4
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        9,
+        1
+      ],
+      "end": [
+        7,
+        2
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        0,
+        1
+      ],
+      "end": [
+        2,
+        2
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        9,
+        0
+      ],
+      "end": [
+        9,
+        1
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        3,
+        2
+      ],
+      "end": [
+        4,
+        2
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        7,
+        1
+      ],
+      "end": [
+        7,
+        0
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        0,
+        7
+      ],
+      "end": [
+        2,
+        6
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        6,
+        6
+      ],
+      "end": [
+        5,
+        6
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        2,
+        7
+      ],
+      "end": [
+        6,
+        7
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        9,
+        7
+      ],
+      "end": [
+        7,
+        6
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        6,
+        7
+      ],
+      "end": [
+        6,
+        6
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        9,
+        8
+      ],
+      "end": [
+        9,
+        7
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        0,
+        8
+      ],
+      "end": [
+        0,
+        7
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        7,
+        7
+      ],
+      "end": [
+        5,
+        7
+      ]
+    },
+    {
+      "kind": "move",
+      "start": [
+        0,
+        7
+      ],
+      "end": [
+        4,
+        7
+      ]
+    }
+  ]
+}

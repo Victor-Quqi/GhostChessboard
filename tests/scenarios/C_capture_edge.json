@@ -1,0 +1,11 @@
+{
+  "name": "C_capture_edge",
+  "initial": {
+    "fen": "4k4/9/9/9/9/9/9/9/9/R1n1K1c1R w - - 0 1",
+    "carriage": [0, 0]
+  },
+  "steps": [
+    {"kind": "capture", "start": [0, 0], "end": [0, 2], "slot": 0},
+    {"kind": "capture", "start": [0, 8], "end": [0, 6], "slot": 1}
+  ]
+}
