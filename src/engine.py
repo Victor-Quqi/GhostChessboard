@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 
 
 class EngineError(RuntimeError):
@@ -44,7 +45,13 @@ def get_best_move(
     timeout_s: float = 15.0,
     cwd: str | Path | None = None,
 ) -> str:
-    """Run one UCI search and return the best move string."""
+    """Run one UCI search and return the best move string.
+
+    Uses ``Popen`` so we can wait for the engine's ``bestmove`` line before
+    sending ``quit``. Passing the whole script in one go (as ``subprocess.run``
+    does) races the engine: ``quit`` often arrives mid-search, which makes
+    Pikafish terminate and emit whatever move was generated at depth 0.
+    """
 
     if not fen.strip():
         raise ValueError("fen must be a non-empty string.")
@@ -60,50 +67,94 @@ def get_best_move(
     command, default_cwd = resolve_engine_command(engine_path)
     run_cwd = Path(cwd) if cwd is not None else default_cwd
 
-    script_lines = ["uci", "isready"]
+    setup_commands = ["uci", "isready"]
     if threads is not None:
-        script_lines.append(f"setoption name Threads value {threads}")
+        setup_commands.append(f"setoption name Threads value {threads}")
     if hash_mb is not None:
-        script_lines.append(f"setoption name Hash value {hash_mb}")
-    script_lines.extend(
+        setup_commands.append(f"setoption name Hash value {hash_mb}")
+    setup_commands.extend(
         [
+            "ucinewgame",
             f"position fen {fen}",
             f"go depth {depth}",
-            "quit",
         ]
     )
-    script = "\n".join(script_lines) + "\n"
 
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
-            input=script,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_s,
+            bufsize=1,
             cwd=str(run_cwd) if run_cwd is not None else None,
-            check=False,
         )
     except FileNotFoundError as exc:
         raise EngineError(f"Could not execute engine command: {command[0]}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise EngineError(f"Engine search timed out after {timeout_s} seconds.") from exc
 
-    if completed.returncode != 0:
-        stderr = completed.stderr.strip()
-        stdout_lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-        detail = stderr or (stdout_lines[-1] if stdout_lines else "")
-        raise EngineError(detail or f"Engine exited with code {completed.returncode}.")
+    assert process.stdin is not None
+    assert process.stdout is not None
+    assert process.stderr is not None
 
-    for line in reversed(completed.stdout.splitlines()):
-        if not line.startswith("bestmove "):
-            continue
-        tokens = line.split()
-        if len(tokens) < 2 or tokens[1] == "(none)":
-            raise EngineError(f"Engine returned no legal best move for FEN: {fen}")
-        return tokens[1]
+    stderr_chunks: list[str] = []
+    timed_out = False
 
-    raise EngineError("Engine output did not contain a 'bestmove' line.")
+    def _drain_stderr() -> None:
+        assert process.stderr is not None
+        for line in process.stderr:
+            stderr_chunks.append(line)
+
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stderr_thread.start()
+
+    try:
+        for line in setup_commands:
+            process.stdin.write(line + "\n")
+        process.stdin.flush()
+
+        best_move: str | None = None
+
+        def _kill_on_timeout() -> None:
+            nonlocal timed_out
+            timed_out = True
+            process.kill()
+
+        deadline_thread = threading.Timer(timeout_s, _kill_on_timeout)
+        deadline_thread.daemon = True
+        deadline_thread.start()
+        try:
+            for raw_line in process.stdout:
+                line = raw_line.strip()
+                if line.startswith("bestmove "):
+                    tokens = line.split()
+                    if len(tokens) >= 2 and tokens[1] != "(none)":
+                        best_move = tokens[1]
+                    break
+        finally:
+            deadline_thread.cancel()
+    finally:
+        try:
+            if process.stdin and not process.stdin.closed:
+                process.stdin.write("quit\n")
+                process.stdin.flush()
+                process.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        stderr_thread.join(timeout=1.0)
+
+    if best_move is None:
+        stderr_text = "".join(stderr_chunks).strip()
+        if timed_out:
+            raise EngineError(f"Engine search timed out after {timeout_s} seconds.")
+        raise EngineError(stderr_text or "Engine output did not contain a 'bestmove' line.")
+
+    return best_move
 
 
 def main(argv: list[str] | None = None) -> None:
