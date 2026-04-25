@@ -19,7 +19,7 @@
 
 - 读取并校验外部视觉结果。
 - 将视觉结果投影为主仓库可用的 `BoardState`。
-- 在 `--verify-vision` 场景复验中编排 GhostVision CLI。
+- 在 `--verify-vision` 场景复验中编排 GhostVision CLI；必要时可用 `--ignore-capture-vision` 只校验主棋盘占位。
 - 保持运动控制与视觉实现解耦。
 
 ## 结果契约
@@ -36,6 +36,7 @@ CLI 调试入口：
 - `python -m src.cli vision-result path/to/result.json --json`
 - 若已安装命令入口，也可使用 `ghostchessboard vision-result path/to/result.json --json`
 - 场景复验同理：未安装命令入口时使用 `python -m src.cli scenario <json> --verify-vision`
+- 如果当前视觉链路不输出吃子区槽位，可加 `--ignore-capture-vision` 暂时忽略 `capture_pieces` 差异。
 
 JSON 示例（必填：`provider`、`board_pieces`；`frame_id`、`produced_at`、`capture_pieces`、`pose`、`metadata` 均为可选）：
 
