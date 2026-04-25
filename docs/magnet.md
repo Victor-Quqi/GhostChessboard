@@ -112,15 +112,7 @@ M5
 - 与木质棋子相比，直接拖载片后的整体拖动稳定性明显更好；但过冲阶段对前方邻位的误吸更敏感
 - 原棋盘背胶撕除后曾尝试直贴铝板，但板面凹凸不平且当前无力矫正；现已回退到 `2mm` 亚克力上面板，并更换备用棋盘纸
 - 现行格距更新为 `x=370/9≈41.11mm`、`y=337/8=42.125mm`
-- 当前默认参数为：
-  - `move_feed = 2400 mm/min`
-  - `return_feed = 12000 mm/min`
-  - `release_overshoot = 15mm`
-  - `magnet_exclusion_radius = 30mm`
-  - `soft_clearance = 8mm`
-  - `y_left_margin = 20mm`
-  - `y_right_workspace = 120mm`
-  - `overshoot_pwm = 500`
+- 当前默认控制参数以 [`docs/tech.md`](tech.md) 为准
 
 ## 下一步
 

@@ -36,6 +36,7 @@ CLI 调试入口：
 - `python -m src.cli vision-result path/to/result.json --json`
 - 若已安装命令入口，也可使用 `ghostchessboard vision-result path/to/result.json --json`
 - 场景复验同理：未安装命令入口时使用 `python -m src.cli scenario <json> --verify-vision`
+- 单回合闭环入口：`python -m src.cli turn --carriage X,Y --verify-vision`
 - 如果当前视觉链路不输出吃子区槽位，可加 `--ignore-capture-vision` 暂时忽略 `capture_pieces` 差异。
 
 JSON 示例（必填：`provider`、`board_pieces`；`frame_id`、`produced_at`、`capture_pieces`、`pose`、`metadata` 均为可选）：

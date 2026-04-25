@@ -84,6 +84,15 @@ class GhostVisionCliProbeTests(unittest.TestCase):
         self.assertEqual(runner.calls[0][1:3], ["calib", "snapshot"])
         self.assertEqual(runner.calls[1][1:3], ["recognize-image", "chinese-chess-recognition"])
 
+    def test_capture_snapshot_returns_recognized_snapshot(self) -> None:
+        runner = FakeRunner()
+        probe = GhostVisionCliProbe(self._config(), run_process=runner)
+
+        snapshot = probe.capture_snapshot()
+
+        self.assertEqual(snapshot.provider, "chinese_chess_recognition")
+        self.assertEqual(snapshot.board_pieces[0].cell, (0, 0))
+
     def test_capture_appends_flip_flags_when_enabled(self) -> None:
         runner = FakeRunner()
         probe = GhostVisionCliProbe(self._config(flip_x=True, flip_y=True), run_process=runner)

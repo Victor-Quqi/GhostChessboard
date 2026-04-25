@@ -53,6 +53,46 @@ def build_parser() -> argparse.ArgumentParser:
     bestmove_parser.add_argument("--timeout-s", type=float, default=15.0, help="Search timeout in seconds.")
     bestmove_parser.add_argument("--json", action="store_true", help="Print the engine request/result as JSON.")
 
+    turn_parser = subparsers.add_parser("turn", help="Run one vision-driven engine turn.")
+    turn_parser.add_argument(
+        "--vision-result",
+        type=Path,
+        help="Use a saved initial vision result JSON instead of capturing live GhostVision output.",
+    )
+    turn_parser.add_argument(
+        "--carriage",
+        required=True,
+        metavar="X,Y",
+        help="Current empty-carriage grid point before this turn.",
+    )
+    turn_parser.add_argument(
+        "--fen-side",
+        default="red",
+        metavar="SIDE",
+        help="Side to move for the generated FEN. Use 'red' or 'black'.",
+    )
+    turn_parser.add_argument("--engine", type=Path, help="Optional engine executable path.")
+    turn_parser.add_argument("--depth", type=int, default=15, help="Search depth.")
+    turn_parser.add_argument("--threads", type=int, help="Optional engine thread count.")
+    turn_parser.add_argument("--hash-mb", type=int, help="Optional transposition-table size in MiB.")
+    turn_parser.add_argument("--timeout-s", type=float, default=15.0, help="Search timeout in seconds.")
+    turn_parser.add_argument("--slot", type=int, help="Capture slot to use when the engine move captures.")
+    turn_parser.add_argument(
+        "--verify-vision",
+        action="store_true",
+        help="After executing the turn, capture GhostVision output and compare with expected occupancy.",
+    )
+    turn_parser.add_argument(
+        "--ignore-capture-vision",
+        action="store_true",
+        help="Ignore capture-area slot differences during post-turn vision verification.",
+    )
+    turn_parser.add_argument("--print-path", action="store_true", help="Print the resolved physical path.")
+    turn_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
+    turn_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
+    turn_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    turn_parser.add_argument("--json", action="store_true", help="Emit the turn summary as JSON.")
+
     subparsers.add_parser("status", help="Read current GRBL status.")
 
     magnet_parser = subparsers.add_parser("magnet", help="Turn magnet on or off.")
@@ -235,31 +275,33 @@ def print_capture_execution(execution: "CaptureExecution") -> None:
     print_route("Attacker", execution.attacker_route)
 
 
-def _scenario_summary_to_dict(summary) -> dict:
+def _route_to_dict(route) -> dict:
+    return {
+        "approach_from": list(route.approach_from) if route.approach_from is not None else None,
+        "start": list(route.start),
+        "end": list(route.end),
+        "waypoints_mm": [list(point) for point in route.waypoints_mm],
+        "release_mm": list(route.release_mm),
+        "overshoot_vector_mm": list(route.overshoot_vector_mm),
+    }
+
+
+def _execution_to_dict(execution) -> dict | None:
     from src.board import CaptureExecution
 
-    def _route_payload(route) -> dict:
+    if execution is None:
+        return None
+    if isinstance(execution, CaptureExecution):
         return {
-            "approach_from": list(route.approach_from) if route.approach_from is not None else None,
-            "start": list(route.start),
-            "end": list(route.end),
-            "waypoints_mm": [list(point) for point in route.waypoints_mm],
-            "release_mm": list(route.release_mm),
-            "overshoot_vector_mm": list(route.overshoot_vector_mm),
+            "kind": "capture",
+            "capture_slot": execution.capture_slot,
+            "victim_route": _route_to_dict(execution.victim_route),
+            "attacker_route": _route_to_dict(execution.attacker_route),
         }
+    return {"kind": "move", "route": _route_to_dict(execution)}
 
-    def _execution_payload(execution) -> dict | None:
-        if execution is None:
-            return None
-        if isinstance(execution, CaptureExecution):
-            return {
-                "kind": "capture",
-                "capture_slot": execution.capture_slot,
-                "victim_route": _route_payload(execution.victim_route),
-                "attacker_route": _route_payload(execution.attacker_route),
-            }
-        return {"kind": "move", "route": _route_payload(execution)}
 
+def _scenario_summary_to_dict(summary) -> dict:
     return {
         "name": summary.name,
         "total_steps": summary.total_steps,
@@ -276,11 +318,43 @@ def _scenario_summary_to_dict(summary) -> dict:
                 "error": result.error,
                 "visual_status": result.visual_status,
                 "visual_diff": result.visual_diff,
-                "execution": _execution_payload(result.execution),
+                "execution": _execution_to_dict(result.execution),
             }
             for result in summary.results
         ],
     }
+
+
+def _turn_result_to_dict(result) -> dict:
+    return {
+        "fen": result.fen,
+        "best_move": result.best_move,
+        "kind": result.kind,
+        "start": list(result.start),
+        "end": list(result.end),
+        "visual_status": result.visual_status,
+        "visual_diff": result.visual_diff,
+        "execution": _execution_to_dict(result.execution),
+    }
+
+
+def _print_turn_result(result, *, print_path: bool) -> None:
+    from src.board import CaptureExecution
+
+    print(f"FEN: {result.fen}")
+    print(
+        f"Best move: {result.best_move} {result.kind} "
+        f"({result.start[0]},{result.start[1]}) -> ({result.end[0]},{result.end[1]})"
+    )
+    if print_path:
+        if isinstance(result.execution, CaptureExecution):
+            print_capture_execution(result.execution)
+        else:
+            print_route("Move", result.execution)
+    diff_suffix = ""
+    if result.visual_diff is not None:
+        diff_suffix = f" diff={json.dumps(result.visual_diff, ensure_ascii=False)}"
+    print(f"Visual: {result.visual_status}{diff_suffix}")
 
 
 def resolve_vision_result_path(config: AppConfig, override: Path | None) -> Path:
@@ -383,6 +457,47 @@ def run(args: argparse.Namespace) -> None:
             print(json.dumps(payload, indent=2, ensure_ascii=False))
         else:
             print(best_move)
+        return
+
+    if args.command == "turn":
+        from src.machine.grbl import GrblController
+        from src.motion.executor import MotionExecutor
+        from src.turn import execute_engine_turn
+        from src.vision import load_external_vision_snapshot
+        from src.vision.probe import GhostVisionCliProbe
+
+        probe = GhostVisionCliProbe(config=config.vision.probe)
+        if args.vision_result is not None:
+            snapshot = load_external_vision_snapshot(args.vision_result)
+        else:
+            snapshot = probe.capture_snapshot()
+        verify_probe = probe if args.verify_vision else None
+
+        with GrblController(config) as controller:
+            controller.initialize()
+            executor = MotionExecutor(controller, config)
+            result = execute_engine_turn(
+                executor=executor,
+                snapshot=snapshot,
+                carriage_cell=parse_cell(args.carriage),
+                side_to_move=args.fen_side,
+                engine_path=args.engine,
+                depth=args.depth,
+                threads=args.threads,
+                hash_mb=args.hash_mb,
+                timeout_s=args.timeout_s,
+                capture_slot=args.slot,
+                probe=verify_probe,
+                verify_capture_slots=not args.ignore_capture_vision,
+                include_compensation=not args.no_comp,
+            )
+
+        if args.json:
+            print(json.dumps(_turn_result_to_dict(result), indent=2, ensure_ascii=False))
+        else:
+            _print_turn_result(result, print_path=args.print_path)
+        if result.visual_status not in {"skipped", "ok"}:
+            raise SystemExit(3)
         return
 
     from src.board import BoardController
@@ -535,8 +650,10 @@ def _handled_cli_errors() -> tuple[type[Exception], ...]:
     from src.engine import EngineError
     from src.motion.planner import MovePlanningError
     from src.scenario import ScenarioError
+    from src.turn import TurnError
+    from src.vision.probe import VisionProbeError
 
-    return (BoardStateError, EngineError, MovePlanningError, ScenarioError)
+    return (BoardStateError, EngineError, MovePlanningError, ScenarioError, TurnError, VisionProbeError)
 
 
 if __name__ == "__main__":

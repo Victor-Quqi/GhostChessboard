@@ -16,6 +16,7 @@ from typing import Callable
 
 from src.board_state import BoardState
 from src.config import VisionProbeConfig
+from src.vision.contracts import ExternalVisionSnapshot
 from src.vision.external import build_board_state_from_snapshot, load_external_vision_snapshot
 
 
@@ -44,6 +45,10 @@ class GhostVisionCliProbe:
     _run_dir: Path | None = None
 
     def capture(self) -> BoardState | None:
+        snapshot = self.capture_snapshot()
+        return build_board_state_from_snapshot(snapshot)
+
+    def capture_snapshot(self) -> ExternalVisionSnapshot:
         run_dir = self._ensure_run_dir()
 
         self._counter += 1
@@ -55,8 +60,7 @@ class GhostVisionCliProbe:
         self._run_snapshot(raw_path, crop_path)
         self._run_recognize(crop_path, result_path)
 
-        snapshot = load_external_vision_snapshot(result_path)
-        return build_board_state_from_snapshot(snapshot)
+        return load_external_vision_snapshot(result_path)
 
     def _ensure_run_dir(self) -> Path:
         if self.config.keep_recent_runs < 1:

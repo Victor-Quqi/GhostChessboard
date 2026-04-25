@@ -26,7 +26,7 @@ class MotionConfig:
     overshoot_pwm_end: int | None = None
     overshoot_pwm_segments: int = 1
     move_feed_mm_min: float = 2400.0
-    return_feed_mm_min: float = 12000.0
+    return_feed_mm_min: float = 7200.0
     engage_delay_s: float = 0.0
     settle_delay_s: float = 0.10
 
