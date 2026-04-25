@@ -26,8 +26,8 @@ class MotionConfig:
     overshoot_pwm_end: int | None = None
     overshoot_pwm_segments: int = 1
     move_feed_mm_min: float = 2400.0
-    return_feed_mm_min: float = 24000.0
-    engage_delay_s: float = 0.20
+    return_feed_mm_min: float = 12000.0
+    engage_delay_s: float = 0.0
     settle_delay_s: float = 0.10
 
 
@@ -47,7 +47,8 @@ class PlanningConfig:
     release_angle_count: int = 32
     release_approach_mm: float = 42.0
     x_bounds_margin_mm: float = 20.0
-    y_bounds_margin_mm: float = 40.0
+    y_left_margin_mm: float = 20.0
+    y_right_workspace_mm: float = 120.0
     clearance_weight: float = 0.35
     turn_weight: float = 8.0
 
@@ -60,8 +61,8 @@ class GrblConfig:
         default_factory=lambda: [
             "$30=1000",
             "$32=0",
-            "$120=500",
-            "$121=500",
+            "$120=250",
+            "$121=250",
             "G21",
             "G91",
         ]

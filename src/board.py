@@ -73,7 +73,7 @@ class BoardController:
 
         approach_from = self._move_carriage_to(start)
         plan = plan_move(
-            occupied=self._state.occupied_cells - {start},
+            occupied=(self._state.occupied_cells - {start}) | self._state.occupied_capture_cells(),
             start=start,
             end=end,
             config=self._executor.config,
@@ -125,7 +125,7 @@ class BoardController:
 
         attacker_approach = self._move_carriage_to(start)
         attacker_plan = plan_move(
-            occupied=self._state.occupied_cells - {start},
+            occupied=(self._state.occupied_cells - {start}) | self._state.occupied_capture_cells(),
             start=start,
             end=target,
             config=self._executor.config,
@@ -154,7 +154,11 @@ class BoardController:
 
         current_x_mm, current_y_mm = grid_point_to_xy(self._executor.config, current)
         target_x_mm, target_y_mm = grid_point_to_xy(self._executor.config, target)
-        self._executor.jog(target_x_mm - current_x_mm, target_y_mm - current_y_mm)
+        self._executor.jog(
+            target_x_mm - current_x_mm,
+            target_y_mm - current_y_mm,
+            feed_mm_min=self._executor.config.motion.return_feed_mm_min,
+        )
         self._state.carriage_cell = target
         return current
 

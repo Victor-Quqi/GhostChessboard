@@ -160,6 +160,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="After every step, capture a GhostVision snapshot and compare with expected occupancy.",
     )
+    scenario_parser.add_argument(
+        "--ignore-capture-vision",
+        action="store_true",
+        help="Ignore capture-area slot differences during scenario vision verification.",
+    )
     scenario_parser.add_argument("--json", action="store_true", help="Emit the run summary as JSON.")
 
     config_parser = subparsers.add_parser("show-config", help="Print resolved config.")
@@ -495,6 +500,7 @@ def run(args: argparse.Namespace) -> None:
                 scenario,
                 board,
                 probe=probe,
+                verify_capture_slots=not args.ignore_capture_vision,
                 on_step_start=None if args.json else _on_step_start,
                 on_step_done=None if args.json else _on_step_done,
             )

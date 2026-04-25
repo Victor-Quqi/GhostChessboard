@@ -33,7 +33,8 @@
 - [x] 连续物理路径规划模块（磁铁误吸半径 + 棋子碰撞半径 + 终点释放方向）
 - [x] 普通走子流程（物理规划 → 连续拖动执行器 → CLI/API 已接通）
 - [x] 吃子流程初版（移走被吃子 → 走进攻方 + 吃子区槽位管理）
-- [x] 当前默认运动参数暂定：`move_feed=2400`、`return_feed=24000`、`release_overshoot=15mm`、`magnet_exclusion=30mm`、`soft_clearance=8mm`；GRBL 加速度 `$120=$121=500 mm/s²`
+- [x] 当前默认运动参数暂定：`move_feed=2400`、`return_feed=12000`、`release_overshoot=15mm`、`magnet_exclusion=30mm`、`soft_clearance=8mm`；GRBL 加速度 `$120=$121=250 mm/s²`
+- [x] 规划边界改为左侧外扩 `20mm`、右侧主棋盘外工作区 `120mm`；普通走子会把已占用吃子区槽位作为障碍
 - [x] 铝板直贴棋盘纸方案已回退：原棋盘背胶撕除后尝试贴铝板，但板面凹凸不平且当前无力矫正；现恢复 `2mm` 亚克力上面板，并更换备用棋盘纸
 - [x] 场景驱动的物理复验链路（`src/scenario.py` + `ghostchessboard scenario <json> --verify-vision`；每步后调 GhostVision 校对，失败即停）
 
@@ -59,3 +60,4 @@
 
 - [ ] 全链路联调（视觉 → AI → 运动）
 - [ ] 完整对局演示
+

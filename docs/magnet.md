@@ -114,10 +114,12 @@ M5
 - 现行格距更新为 `x=370/9≈41.11mm`、`y=337/8=42.125mm`
 - 当前默认参数为：
   - `move_feed = 2400 mm/min`
-  - `return_feed = 24000 mm/min`
+  - `return_feed = 12000 mm/min`
   - `release_overshoot = 15mm`
   - `magnet_exclusion_radius = 30mm`
   - `soft_clearance = 8mm`
+  - `y_left_margin = 20mm`
+  - `y_right_workspace = 120mm`
   - `overshoot_pwm = 500`
 
 ## 下一步
@@ -125,3 +127,4 @@ M5
 - 当前默认棋面载体已切到“引磁片直拖 + 棋子贴纸”，后续所有落点、误吸和速度结论都应以该形态为准
 - 现行格距 `x=370/9≈41.11mm`、`y=337/8=42.125mm` 已写入控制程序，后续标定与复验应继续沿用该值
 - 高密度区域优先通过连续物理路径与终点释放方向规避误吸，不优先全局减小 `release_overshoot`
+

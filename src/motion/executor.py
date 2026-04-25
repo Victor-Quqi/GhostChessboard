@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Iterable
 
 from src.config import AppConfig
@@ -25,6 +26,13 @@ class MotionExecutor:
     def release(self) -> None:
         self._controller.dwell(self._config.motion.settle_delay_s)
         self._controller.magnet_off()
+
+    def _safe_magnet_off(self) -> None:
+        try:
+            self._controller.magnet_off()
+        except Exception:
+            if sys.exc_info()[0] is None:
+                raise
 
     @property
     def config(self) -> AppConfig:
@@ -114,44 +122,52 @@ class MotionExecutor:
         move_feed = self._config.motion.move_feed_mm_min
         total_drag_timeout_s = 0.0
 
-        self._controller.magnet_on(self._config.motion.engage_pwm, wait_for_ack=False)
+        magnet_engaged = False
+        released = False
+        try:
+            self._controller.magnet_on(self._config.motion.engage_pwm, wait_for_ack=False)
+            magnet_engaged = True
 
-        # A delayed dwell here would reintroduce the visible stop we are trying
-        # to remove. When engage and drag PWM differ, switch immediately.
-        if self._config.motion.drag_pwm != self._config.motion.engage_pwm:
-            self._controller.magnet_on(self._config.motion.drag_pwm, wait_for_ack=False)
+            # A delayed dwell here would reintroduce the visible stop we are trying
+            # to remove. When engage and drag PWM differ, switch immediately.
+            if self._config.motion.drag_pwm != self._config.motion.engage_pwm:
+                self._controller.magnet_on(self._config.motion.drag_pwm, wait_for_ack=False)
 
-        if drag_to_target:
-            total_drag_timeout_s += self._controller.jog_relative(
-                dx_mm=sign_x * drag_to_target,
-                dy_mm=sign_y * drag_to_target,
-                feed_mm_min=move_feed,
-                wait_for_idle=False,
-                wait_for_ack=False,
-            )
-
-        if overshoot_drag:
-            pwm_profile = self._overshoot_pwm_profile()
-            segment_count = len(pwm_profile)
-            previous_distance = 0.0
-
-            for index, pwm in enumerate(pwm_profile, start=1):
-                if pwm is not None and pwm != self._config.motion.drag_pwm:
-                    self._controller.magnet_on(pwm, wait_for_ack=False)
-
-                target_distance = overshoot_drag * index / segment_count
-                segment_distance = target_distance - previous_distance
-                previous_distance = target_distance
+            if drag_to_target:
                 total_drag_timeout_s += self._controller.jog_relative(
-                    dx_mm=sign_x * segment_distance,
-                    dy_mm=sign_y * segment_distance,
+                    dx_mm=sign_x * drag_to_target,
+                    dy_mm=sign_y * drag_to_target,
                     feed_mm_min=move_feed,
                     wait_for_idle=False,
                     wait_for_ack=False,
                 )
 
-        self._controller.wait_for_idle(timeout_s=total_drag_timeout_s + 5.0)
-        self._controller.magnet_off()
+            if overshoot_drag:
+                pwm_profile = self._overshoot_pwm_profile()
+                segment_count = len(pwm_profile)
+                previous_distance = 0.0
+
+                for index, pwm in enumerate(pwm_profile, start=1):
+                    if pwm is not None and pwm != self._config.motion.drag_pwm:
+                        self._controller.magnet_on(pwm, wait_for_ack=False)
+
+                    target_distance = overshoot_drag * index / segment_count
+                    segment_distance = target_distance - previous_distance
+                    previous_distance = target_distance
+                    total_drag_timeout_s += self._controller.jog_relative(
+                        dx_mm=sign_x * segment_distance,
+                        dy_mm=sign_y * segment_distance,
+                        feed_mm_min=move_feed,
+                        wait_for_idle=False,
+                        wait_for_ack=False,
+                    )
+
+            self._controller.wait_for_idle(timeout_s=total_drag_timeout_s + 5.0)
+            self._controller.magnet_off()
+            released = True
+        finally:
+            if magnet_engaged and not released:
+                self._safe_magnet_off()
 
         if overshoot:
             self.jog(
@@ -174,35 +190,22 @@ class MotionExecutor:
 
         current = plan.waypoints_mm[0]
 
-        self._controller.magnet_on(self._config.motion.engage_pwm)
-        if self._config.motion.engage_delay_s:
-            self._controller.dwell(self._config.motion.engage_delay_s)
-        if self._config.motion.drag_pwm != self._config.motion.engage_pwm:
-            self._controller.magnet_on(self._config.motion.drag_pwm)
+        magnet_engaged = False
+        released = False
+        try:
+            self._controller.magnet_on(self._config.motion.engage_pwm, wait_for_ack=False)
+            magnet_engaged = True
+            if self._config.motion.engage_delay_s:
+                self._controller.dwell(self._config.motion.engage_delay_s)
+            if self._config.motion.drag_pwm != self._config.motion.engage_pwm:
+                self._controller.magnet_on(self._config.motion.drag_pwm, wait_for_ack=False)
 
-        queued_timeout_s = 0.0
-        for target in plan.waypoints_mm[1:]:
-            dx_mm = target[0] - current[0]
-            dy_mm = target[1] - current[1]
-            if abs(dx_mm) <= 1e-9 and abs(dy_mm) <= 1e-9:
-                continue
-            queued_timeout_s += self._controller.jog_relative(
-                dx_mm=dx_mm,
-                dy_mm=dy_mm,
-                feed_mm_min=self._config.motion.move_feed_mm_min,
-                wait_for_idle=False,
-                wait_for_ack=False,
-            )
-            current = target
-
-        if include_compensation:
-            overshoot_pwm = self._config.motion.overshoot_pwm
-            if overshoot_pwm is not None and overshoot_pwm != self._config.motion.drag_pwm:
-                self._controller.magnet_on(overshoot_pwm, wait_for_ack=False)
-
-            dx_mm = plan.release_mm[0] - current[0]
-            dy_mm = plan.release_mm[1] - current[1]
-            if abs(dx_mm) > 1e-9 or abs(dy_mm) > 1e-9:
+            queued_timeout_s = 0.0
+            for target in plan.waypoints_mm[1:]:
+                dx_mm = target[0] - current[0]
+                dy_mm = target[1] - current[1]
+                if abs(dx_mm) <= 1e-9 and abs(dy_mm) <= 1e-9:
+                    continue
                 queued_timeout_s += self._controller.jog_relative(
                     dx_mm=dx_mm,
                     dy_mm=dy_mm,
@@ -210,10 +213,31 @@ class MotionExecutor:
                     wait_for_idle=False,
                     wait_for_ack=False,
                 )
-                current = plan.release_mm
+                current = target
 
-        self._controller.wait_for_idle(timeout_s=queued_timeout_s + 5.0)
-        self.release()
+            if include_compensation:
+                overshoot_pwm = self._config.motion.overshoot_pwm
+                if overshoot_pwm is not None and overshoot_pwm != self._config.motion.drag_pwm:
+                    self._controller.magnet_on(overshoot_pwm, wait_for_ack=False)
+
+                dx_mm = plan.release_mm[0] - current[0]
+                dy_mm = plan.release_mm[1] - current[1]
+                if abs(dx_mm) > 1e-9 or abs(dy_mm) > 1e-9:
+                    queued_timeout_s += self._controller.jog_relative(
+                        dx_mm=dx_mm,
+                        dy_mm=dy_mm,
+                        feed_mm_min=self._config.motion.move_feed_mm_min,
+                        wait_for_idle=False,
+                        wait_for_ack=False,
+                    )
+                    current = plan.release_mm
+
+            self._controller.wait_for_idle(timeout_s=queued_timeout_s + 5.0)
+            self.release()
+            released = True
+        finally:
+            if magnet_engaged and not released:
+                self._safe_magnet_off()
 
         if include_compensation:
             self._move_empty_to(current, plan.waypoints_mm[-1])

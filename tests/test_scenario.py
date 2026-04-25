@@ -30,13 +30,13 @@ class FakeExecutor:
     def __init__(self) -> None:
         self.config = AppConfig()
         self.drag_calls: list[tuple[tuple[tuple[float, float], ...], bool]] = []
-        self.jog_calls: list[tuple[float, float]] = []
+        self.jog_calls: list[tuple[float, float, float | None]] = []
 
     def drag_plan(self, plan, *, include_compensation: bool = True) -> None:
         self.drag_calls.append((tuple(plan.waypoints_mm), include_compensation))
 
     def jog(self, dx_mm: float, dy_mm: float, *, feed_mm_min: float | None = None) -> None:
-        self.jog_calls.append((dx_mm, dy_mm))
+        self.jog_calls.append((dx_mm, dy_mm, feed_mm_min))
 
 
 class FakeProbe:
@@ -155,6 +155,7 @@ class ScenarioRunTests(unittest.TestCase):
         self.assertNotIn((3, 0), board.state.occupied_cells)
         self.assertTrue(all(result.visual_status == "skipped" for result in summary.results))
         self.assertGreaterEqual(len(executor.drag_calls), 2)
+        self.assertEqual(executor.jog_calls[0][2], executor.config.motion.return_feed_mm_min)
 
     def test_halt_on_execution_error(self) -> None:
         scenario = self._standard_scenario(
@@ -253,6 +254,41 @@ class ScenarioRunTests(unittest.TestCase):
         self.assertIsNone(summary.halted_at_index)
         self.assertIn(3, board.state.filled_capture_slots)
         self.assertIn((0, 6), board.state.occupied_cells)
+
+    def test_capture_slot_vision_can_be_ignored(self) -> None:
+        scenario = parse_scenario(
+            {
+                "name": "cap_no_slot_vision",
+                "initial": {
+                    "fen": "9/9/9/9/9/9/9/9/9/R1r6 w - - 0 1",
+                    "carriage": [0, 8],
+                },
+                "steps": [
+                    {"kind": "capture", "start": [0, 8], "end": [0, 6], "slot": 3},
+                ],
+            }
+        )
+        board, _ = self._make_board(scenario)
+
+        class MainBoardOnlyProbe:
+            def capture(self):
+                state = board.state
+                return BoardState(
+                    occupied_cells=set(state.occupied_cells),
+                    filled_capture_slots=set(),
+                    carriage_cell=state.carriage_cell,
+                )
+
+        summary = run_scenario(
+            scenario,
+            board,
+            probe=MainBoardOnlyProbe(),
+            verify_capture_slots=False,
+        )
+
+        self.assertIsNone(summary.halted_at_index)
+        self.assertEqual(summary.results[0].visual_status, "ok")
+        self.assertIn(3, board.state.filled_capture_slots)
 
 
 if __name__ == "__main__":

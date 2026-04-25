@@ -128,6 +128,7 @@ def run_scenario(
     board: BoardController,
     *,
     probe: VisionProbe | None = None,
+    verify_capture_slots: bool = True,
     on_step_start: Callable[[int, ScenarioStep], None] | None = None,
     on_step_done: Callable[[StepResult], None] | None = None,
 ) -> ScenarioRunSummary:
@@ -170,7 +171,11 @@ def run_scenario(
             break
 
         summary.executed_steps += 1
-        visual_status, visual_diff = _verify_with_probe(probe, board.state)
+        visual_status, visual_diff = _verify_with_probe(
+            probe,
+            board.state,
+            verify_capture_slots=verify_capture_slots,
+        )
 
         result = StepResult(
             index=index,
@@ -216,7 +221,10 @@ def _execute_step(
 
 
 def _verify_with_probe(
-    probe: VisionProbe | None, expected: BoardState
+    probe: VisionProbe | None,
+    expected: BoardState,
+    *,
+    verify_capture_slots: bool = True,
 ) -> tuple[str, dict[str, list] | None]:
     if probe is None:
         return "skipped", None
@@ -232,10 +240,13 @@ def _verify_with_probe(
     missing = sorted(expected_cells - observed_cells)
     extra = sorted(observed_cells - expected_cells)
 
-    expected_slots = expected.filled_capture_slots
-    observed_slots = observed.filled_capture_slots
-    slots_missing = sorted(expected_slots - observed_slots)
-    slots_extra = sorted(observed_slots - expected_slots)
+    slots_missing: list[int] = []
+    slots_extra: list[int] = []
+    if verify_capture_slots:
+        expected_slots = expected.filled_capture_slots
+        observed_slots = observed.filled_capture_slots
+        slots_missing = sorted(expected_slots - observed_slots)
+        slots_extra = sorted(observed_slots - expected_slots)
 
     if not missing and not extra and not slots_missing and not slots_extra:
         return "ok", None

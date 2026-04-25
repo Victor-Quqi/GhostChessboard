@@ -102,8 +102,43 @@ class PhysicalPlannerTests(unittest.TestCase):
 
         self.assertEqual(plan.start, tight_step.start)
         self.assertEqual(plan.end, tight_step.end)
-        self.assertLessEqual(max(point[1] for point in plan.waypoints_mm), 337.0 + config.planning.y_bounds_margin_mm)
+        self.assertLessEqual(
+            max(point[1] for point in plan.waypoints_mm),
+            337.0 + config.planning.y_right_workspace_mm,
+        )
         self.assertGreater(max(point[1] for point in plan.waypoints_mm), 337.0 + config.planning.x_bounds_margin_mm)
+
+    def test_right_workspace_avoids_occupied_capture_slot(self) -> None:
+        from src.scenario import load_scenario
+
+        config = AppConfig()
+        scenario = load_scenario("tests/scenarios/B_tight_paths.json")
+        state = scenario.initial_state
+        for step in scenario.steps[:2]:
+            plan_move(
+                state.occupied_cells - {step.start},
+                step.start,
+                step.end,
+                config=config,
+            )
+            state.occupied_cells.remove(step.start)
+            state.occupied_cells.add(step.end)
+        tight_step = scenario.steps[2]
+        capture_obstacle = (1, 9)
+
+        plan = plan_move(
+            (state.occupied_cells - {tight_step.start}) | {capture_obstacle},
+            tight_step.start,
+            tight_step.end,
+            config=config,
+        )
+        obstacle_mm = grid_point_to_xy(config, capture_obstacle)
+
+        for start, end in zip(plan.waypoints_mm, plan.waypoints_mm[1:]):
+            self.assertGreaterEqual(
+                _distance_point_to_segment(obstacle_mm, start, end),
+                config.planning.magnet_exclusion_radius_mm,
+            )
 
 
 def _distance_point_to_segment(point, start, end) -> float:

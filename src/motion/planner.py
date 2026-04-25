@@ -11,6 +11,7 @@ from src.motion.contracts import DragPlan, GridPoint, PointMm
 
 BoardCell = tuple[int, int]
 GridCell = tuple[int, int]
+MAIN_BOARD_MAX_Y_INDEX = 8
 
 
 class MovePlanningError(ValueError):
@@ -365,12 +366,13 @@ def _route_clearance(config: AppConfig) -> float:
 
 def _planning_bounds(config: AppConfig, *, max_x: int, max_y: int) -> tuple[float, float, float, float]:
     x_margin = config.planning.x_bounds_margin_mm
-    y_margin = config.planning.y_bounds_margin_mm
+    main_board_y_max_mm = MAIN_BOARD_MAX_Y_INDEX * config.motion.y_cell_pitch_mm
+    y_max_mm = max(max_y * config.motion.y_cell_pitch_mm, main_board_y_max_mm + config.planning.y_right_workspace_mm)
     return (
         -x_margin,
         max_x * config.motion.x_cell_pitch_mm + x_margin,
-        -y_margin,
-        max_y * config.motion.y_cell_pitch_mm + y_margin,
+        -config.planning.y_left_margin_mm,
+        y_max_mm,
     )
 
 
