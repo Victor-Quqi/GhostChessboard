@@ -1,8 +1,8 @@
 """Live GhostVision CLI probe for scenario visual verification.
 
 Runs the two-step GhostVision flow (snapshot + recognize) as subprocesses
-and returns the recognized ``BoardState``. Intentionally tolerant: the
-scenario runner treats probe failures as unavailable (non-fatal).
+and returns the recognized ``BoardState``. Probe failures are surfaced as
+visual verification errors; scenario runs stop when verification is requested.
 """
 
 from __future__ import annotations
