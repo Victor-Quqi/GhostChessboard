@@ -6,7 +6,7 @@ from typing import Iterable
 
 from src.config import AppConfig
 from src.machine.grbl import GrblController
-from src.motion.contracts import Segment
+from src.motion.contracts import DragPlan, PointMm, Segment
 
 
 class MotionExecutor:
@@ -25,6 +25,10 @@ class MotionExecutor:
     def release(self) -> None:
         self._controller.dwell(self._config.motion.settle_delay_s)
         self._controller.magnet_off()
+
+    @property
+    def config(self) -> AppConfig:
+        return self._config
 
     def jog(self, dx_mm: float, dy_mm: float, *, feed_mm_min: float | None = None) -> None:
         self._controller.jog_relative(
@@ -77,7 +81,7 @@ class MotionExecutor:
             raise ValueError("cells must be positive.")
         sign_x, sign_y = self._axis_vector(direction)
         pitch = self._pitch_for_direction(direction) * cells
-        overshoot = self._config.compensation.overshoot_for(direction) if include_compensation else 0.0
+        overshoot = self._config.compensation.release_overshoot_mm if include_compensation else 0.0
         signed_distance = pitch + overshoot
         return signed_distance * (sign_x or sign_y)
 
@@ -98,31 +102,18 @@ class MotionExecutor:
 
         sign_x, sign_y = self._axis_vector(direction)
         pitch = self._pitch_for_direction(direction) * cells
-        overshoot = self._config.compensation.overshoot_for(direction) if include_compensation else 0.0
-        pre = self._config.compensation.pre_for(direction) if include_compensation else 0.0
-
-        total_drag = pitch + overshoot - pre
+        overshoot = self._config.compensation.release_overshoot_mm if include_compensation else 0.0
+        total_drag = pitch + overshoot
         if total_drag <= 0:
             raise ValueError(
-                f"Invalid step profile for {direction}: pitch={pitch}, overshoot={overshoot}, pre={pre}"
+                f"Invalid step profile for {direction}: pitch={pitch}, overshoot={overshoot}"
             )
-        drag_to_target = min(total_drag, max(pitch - pre, 0.0))
+        drag_to_target = min(total_drag, pitch)
         overshoot_drag = total_drag - drag_to_target
 
         move_feed = self._config.motion.move_feed_mm_min
         total_drag_timeout_s = 0.0
 
-        if pre:
-            total_drag_timeout_s += self._controller.jog_relative(
-                dx_mm=sign_x * pre,
-                dy_mm=sign_y * pre,
-                feed_mm_min=move_feed,
-                wait_for_idle=False,
-                wait_for_ack=False,
-            )
-
-        # Queue magnet enable between pre and main drag so the carriage does not
-        # fully stop at the pre boundary before pulling the piece.
         self._controller.magnet_on(self._config.motion.engage_pwm, wait_for_ack=False)
 
         # A delayed dwell here would reintroduce the visible stop we are trying
@@ -176,3 +167,61 @@ class MotionExecutor:
                 cells=segment.cells,
                 include_compensation=include_compensation,
             )
+
+    def drag_plan(self, plan: DragPlan, *, include_compensation: bool = True) -> None:
+        if len(plan.waypoints_mm) < 2:
+            return
+
+        current = plan.waypoints_mm[0]
+
+        self._controller.magnet_on(self._config.motion.engage_pwm)
+        if self._config.motion.engage_delay_s:
+            self._controller.dwell(self._config.motion.engage_delay_s)
+        if self._config.motion.drag_pwm != self._config.motion.engage_pwm:
+            self._controller.magnet_on(self._config.motion.drag_pwm)
+
+        queued_timeout_s = 0.0
+        for target in plan.waypoints_mm[1:]:
+            dx_mm = target[0] - current[0]
+            dy_mm = target[1] - current[1]
+            if abs(dx_mm) <= 1e-9 and abs(dy_mm) <= 1e-9:
+                continue
+            queued_timeout_s += self._controller.jog_relative(
+                dx_mm=dx_mm,
+                dy_mm=dy_mm,
+                feed_mm_min=self._config.motion.move_feed_mm_min,
+                wait_for_idle=False,
+                wait_for_ack=False,
+            )
+            current = target
+
+        if include_compensation:
+            overshoot_pwm = self._config.motion.overshoot_pwm
+            if overshoot_pwm is not None and overshoot_pwm != self._config.motion.drag_pwm:
+                self._controller.magnet_on(overshoot_pwm, wait_for_ack=False)
+
+            dx_mm = plan.release_mm[0] - current[0]
+            dy_mm = plan.release_mm[1] - current[1]
+            if abs(dx_mm) > 1e-9 or abs(dy_mm) > 1e-9:
+                queued_timeout_s += self._controller.jog_relative(
+                    dx_mm=dx_mm,
+                    dy_mm=dy_mm,
+                    feed_mm_min=self._config.motion.move_feed_mm_min,
+                    wait_for_idle=False,
+                    wait_for_ack=False,
+                )
+                current = plan.release_mm
+
+        self._controller.wait_for_idle(timeout_s=queued_timeout_s + 5.0)
+        self.release()
+
+        if include_compensation:
+            self._move_empty_to(current, plan.waypoints_mm[-1])
+
+    def _move_empty_to(self, current: PointMm, target: PointMm) -> PointMm:
+        dx_mm = target[0] - current[0]
+        dy_mm = target[1] - current[1]
+        if abs(dx_mm) <= 1e-9 and abs(dy_mm) <= 1e-9:
+            return target
+        self.jog(dx_mm, dy_mm, feed_mm_min=self._config.motion.return_feed_mm_min)
+        return target

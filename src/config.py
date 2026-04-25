@@ -33,38 +33,23 @@ class MotionConfig:
 
 @dataclass(slots=True)
 class CompensationConfig:
-    overshoot_x_pos_mm: float = 15.0
-    overshoot_x_neg_mm: float = 15.0
-    overshoot_y_pos_mm: float = 15.0
-    overshoot_y_neg_mm: float = 15.0
-    pre_x_pos_mm: float = 15.0
-    pre_x_neg_mm: float = 15.0
-    pre_y_pos_mm: float = 15.0
-    pre_y_neg_mm: float = 15.0
+    release_overshoot_mm: float = 15.0
 
-    def overshoot_for(self, direction: str) -> float:
-        mapping = {
-            "x+": self.overshoot_x_pos_mm,
-            "x-": self.overshoot_x_neg_mm,
-            "y+": self.overshoot_y_pos_mm,
-            "y-": self.overshoot_y_neg_mm,
-        }
-        try:
-            return mapping[direction]
-        except KeyError as exc:
-            raise ValueError(f"Unsupported direction: {direction}") from exc
 
-    def pre_for(self, direction: str) -> float:
-        mapping = {
-            "x+": self.pre_x_pos_mm,
-            "x-": self.pre_x_neg_mm,
-            "y+": self.pre_y_pos_mm,
-            "y-": self.pre_y_neg_mm,
-        }
-        try:
-            return mapping[direction]
-        except KeyError as exc:
-            raise ValueError(f"Unsupported direction: {direction}") from exc
+@dataclass(slots=True)
+class PlanningConfig:
+    magnet_exclusion_radius_mm: float = 30.0
+    piece_radius_mm: float = 10.0
+    piece_collision_margin_mm: float = 2.0
+    soft_clearance_mm: float = 8.0
+    waypoint_clearance_mm: float = 8.0
+    candidate_angle_count: int = 24
+    release_angle_count: int = 32
+    release_approach_mm: float = 42.0
+    x_bounds_margin_mm: float = 20.0
+    y_bounds_margin_mm: float = 40.0
+    clearance_weight: float = 0.35
+    turn_weight: float = 8.0
 
 
 @dataclass(slots=True)
@@ -117,6 +102,7 @@ class AppConfig:
     grbl: GrblConfig = field(default_factory=GrblConfig)
     motion: MotionConfig = field(default_factory=MotionConfig)
     compensation: CompensationConfig = field(default_factory=CompensationConfig)
+    planning: PlanningConfig = field(default_factory=PlanningConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
 
     def to_dict(self) -> dict[str, Any]:

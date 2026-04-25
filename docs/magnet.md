@@ -115,12 +115,13 @@ M5
 - 当前默认参数为：
   - `move_feed = 2400 mm/min`
   - `return_feed = 24000 mm/min`
-  - `overshoot = 15mm`
-  - `pre = 15mm`
+  - `release_overshoot = 15mm`
+  - `magnet_exclusion_radius = 30mm`
+  - `soft_clearance = 8mm`
   - `overshoot_pwm = 500`
 
 ## 下一步
 
 - 当前默认棋面载体已切到“引磁片直拖 + 棋子贴纸”，后续所有落点、误吸和速度结论都应以该形态为准
 - 现行格距 `x=370/9≈41.11mm`、`y=337/8=42.125mm` 已写入控制程序，后续标定与复验应继续沿用该值
-- 高密度区域若在过冲/回正阶段扰动邻子，不应简单全局减小 `overshoot`，否则会重新带来落点偏差；后续更合理的方向是按局部占位切换执行策略，或让路径规划优先远离障碍
+- 高密度区域优先通过连续物理路径与终点释放方向规避误吸，不优先全局减小 `release_overshoot`

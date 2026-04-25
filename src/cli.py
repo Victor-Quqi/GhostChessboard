@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     route_parser.add_argument("segments", nargs="+", help="Examples: x+ x-:2 y+")
     route_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
 
-    move_parser = subparsers.add_parser("move", help="Plan and execute a board move with BFS.")
+    move_parser = subparsers.add_parser("move", help="Plan and execute a physical board move.")
     move_parser.add_argument("start", help="Start cell as x,y.")
     move_parser.add_argument("end", help="End cell as x,y.")
     move_parser.add_argument(
@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     move_parser.add_argument(
         "--print-path",
         action="store_true",
-        help="Print the resolved BFS path and merged segments before execution.",
+        help="Print the resolved physical path before execution.",
     )
     move_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
     move_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
@@ -144,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     capture_parser.add_argument(
         "--print-path",
         action="store_true",
-        help="Print both resolved BFS paths and merged segments before execution.",
+        help="Print both resolved physical paths before execution.",
     )
     capture_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
     capture_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
@@ -204,14 +204,22 @@ def print_route(label: str, execution: "ExecutedRoute") -> None:
     """Print a single executed route in a compact debug format."""
     if execution.approach_from is None:
         print(f"{label} approach: (assumed aligned)")
-    elif execution.approach_from == execution.path[0]:
-        print(f"{label} approach: already at ({execution.path[0][0]},{execution.path[0][1]})")
+    elif execution.approach_from == execution.start:
+        print(f"{label} approach: already at ({execution.start[0]},{execution.start[1]})")
     else:
         print(f"{label} approach: from ({execution.approach_from[0]},{execution.approach_from[1]})")
-    print(f"{label} path:", " -> ".join(f"({x},{y})" for x, y in execution.path))
     print(
-        f"{label} segments:",
-        " ".join(f"{segment.direction}:{segment.cells}" for segment in execution.segments) or "(none)",
+        f"{label} cells:",
+        f"({execution.start[0]},{execution.start[1]}) -> ({execution.end[0]},{execution.end[1]})",
+    )
+    print(
+        f"{label} waypoints:",
+        " -> ".join(f"({x:.1f},{y:.1f})" for x, y in execution.waypoints_mm),
+    )
+    print(
+        f"{label} release:",
+        f"release=({execution.release_mm[0]:.1f},{execution.release_mm[1]:.1f}) "
+        f"overshoot=({execution.overshoot_vector_mm[0]:.1f},{execution.overshoot_vector_mm[1]:.1f})",
     )
 
 
@@ -228,11 +236,11 @@ def _scenario_summary_to_dict(summary) -> dict:
     def _route_payload(route) -> dict:
         return {
             "approach_from": list(route.approach_from) if route.approach_from is not None else None,
-            "path": [list(cell) for cell in route.path],
-            "segments": [
-                {"direction": segment.direction, "cells": segment.cells}
-                for segment in route.segments
-            ],
+            "start": list(route.start),
+            "end": list(route.end),
+            "waypoints_mm": [list(point) for point in route.waypoints_mm],
+            "release_mm": list(route.release_mm),
+            "overshoot_vector_mm": list(route.overshoot_vector_mm),
         }
 
     def _execution_payload(execution) -> dict | None:

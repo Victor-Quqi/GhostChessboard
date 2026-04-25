@@ -8,13 +8,12 @@ from src.board_state import BoardCell, BoardState, BoardStateError
 from src.coords import (
     GridPoint,
     capture_slot_to_cell,
-    grid_to_xy,
     validate_grid_point,
     validate_main_board_cell,
 )
-from src.motion.contracts import Segment
+from src.motion.contracts import DragPlan, PointMm
 from src.motion.executor import MotionExecutor
-from src.motion.planner import PlannedMove, plan_grid_move, plan_move
+from src.motion.planner import grid_point_to_xy, plan_grid_move, plan_move
 
 
 @dataclass(slots=True)
@@ -22,8 +21,11 @@ class ExecutedRoute:
     """Executed piece route together with any empty-carriage reposition."""
 
     approach_from: GridPoint | None
-    path: list[GridPoint]
-    segments: list[Segment]
+    start: GridPoint
+    end: GridPoint
+    waypoints_mm: list[PointMm]
+    release_mm: PointMm
+    overshoot_vector_mm: PointMm
 
 
 @dataclass(slots=True)
@@ -74,8 +76,9 @@ class BoardController:
             occupied=self._state.occupied_cells - {start},
             start=start,
             end=end,
+            config=self._executor.config,
         )
-        self._executor.drag_route(plan.segments, include_compensation=include_compensation)
+        self._executor.drag_plan(plan, include_compensation=include_compensation)
 
         self._state.occupied_cells.remove(start)
         self._state.occupied_cells.add(end)
@@ -110,10 +113,11 @@ class BoardController:
             occupied=(self._state.occupied_cells - {target}) | self._state.occupied_capture_cells(),
             start=target,
             end=capture_cell,
+            config=self._executor.config,
             max_x=9,
             max_y=10,
         )
-        self._executor.drag_route(victim_plan.segments, include_compensation=include_compensation)
+        self._executor.drag_plan(victim_plan, include_compensation=include_compensation)
 
         self._state.occupied_cells.remove(target)
         self._state.filled_capture_slots.add(resolved_slot)
@@ -124,8 +128,9 @@ class BoardController:
             occupied=self._state.occupied_cells - {start},
             start=start,
             end=target,
+            config=self._executor.config,
         )
-        self._executor.drag_route(attacker_plan.segments, include_compensation=include_compensation)
+        self._executor.drag_plan(attacker_plan, include_compensation=include_compensation)
 
         self._state.occupied_cells.remove(start)
         self._state.occupied_cells.add(target)
@@ -147,16 +152,19 @@ class BoardController:
         if current == target:
             return current
 
-        current_x_mm, current_y_mm = grid_to_xy(*current)
-        target_x_mm, target_y_mm = grid_to_xy(*target)
+        current_x_mm, current_y_mm = grid_point_to_xy(self._executor.config, current)
+        target_x_mm, target_y_mm = grid_point_to_xy(self._executor.config, target)
         self._executor.jog(target_x_mm - current_x_mm, target_y_mm - current_y_mm)
         self._state.carriage_cell = target
         return current
 
-    def _route_from_plan(self, plan: PlannedMove, approach_from: GridPoint | None) -> ExecutedRoute:
+    def _route_from_plan(self, plan: DragPlan, approach_from: GridPoint | None) -> ExecutedRoute:
         """Convert an internal plan to a caller-friendly execution record."""
         return ExecutedRoute(
             approach_from=approach_from,
-            path=list(plan.path),
-            segments=list(plan.segments),
+            start=plan.start,
+            end=plan.end,
+            waypoints_mm=list(plan.waypoints_mm),
+            release_mm=plan.release_mm,
+            overshoot_vector_mm=plan.overshoot_vector_mm,
         )

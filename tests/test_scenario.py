@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from src.config import AppConfig
 from src.board import BoardController
 from src.board_state import BoardState
 from src.scenario import (
@@ -27,13 +28,12 @@ class FakeExecutor:
     """Record jog/drag calls instead of talking to hardware."""
 
     def __init__(self) -> None:
-        self.drag_calls: list[tuple[tuple[tuple[str, int], ...], bool]] = []
+        self.config = AppConfig()
+        self.drag_calls: list[tuple[tuple[tuple[float, float], ...], bool]] = []
         self.jog_calls: list[tuple[float, float]] = []
 
-    def drag_route(self, segments, *, include_compensation: bool = True) -> None:
-        self.drag_calls.append(
-            (tuple((seg.direction, seg.cells) for seg in segments), include_compensation)
-        )
+    def drag_plan(self, plan, *, include_compensation: bool = True) -> None:
+        self.drag_calls.append((tuple(plan.waypoints_mm), include_compensation))
 
     def jog(self, dx_mm: float, dy_mm: float, *, feed_mm_min: float | None = None) -> None:
         self.jog_calls.append((dx_mm, dy_mm))
