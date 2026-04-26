@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 import time
 from typing import Iterable
 
@@ -15,17 +16,23 @@ class GrblError(RuntimeError):
     """Raised when GRBL returns an error or enters a bad state."""
 
 
+PIN_RE = re.compile(r"\|Pn:([^|>]+)")
+
+
 @dataclass(slots=True)
 class GrblStatus:
     raw: str
     state: str
+    pins: str = ""
 
     @classmethod
     def parse(cls, line: str) -> "GrblStatus":
         if not line.startswith("<") or "|" not in line:
             raise ValueError(f"Not a GRBL status line: {line}")
         state = line[1:].split("|", 1)[0]
-        return cls(raw=line, state=state)
+        pin_match = PIN_RE.search(line)
+        pins = pin_match.group(1) if pin_match else ""
+        return cls(raw=line, state=state, pins=pins)
 
 
 class SerialTransport:
@@ -69,6 +76,12 @@ class SerialTransport:
         self._serial.write((line + "\n").encode("ascii"))
         self._serial.flush()
 
+    def write_bytes(self, payload: bytes) -> None:
+        if self._serial is None:
+            raise RuntimeError("Serial transport is not open.")
+        self._serial.write(payload)
+        self._serial.flush()
+
     def read_lines(self, duration_s: float) -> list[str]:
         if self._serial is None:
             raise RuntimeError("Serial transport is not open.")
@@ -79,6 +92,19 @@ class SerialTransport:
             if line:
                 lines.append(line)
         return lines
+
+    def read_available(self, duration_s: float) -> str:
+        if self._serial is None:
+            raise RuntimeError("Serial transport is not open.")
+        end = time.monotonic() + duration_s
+        chunks: list[bytes] = []
+        while time.monotonic() < end:
+            waiting = self._serial.in_waiting
+            if waiting:
+                chunks.append(self._serial.read(waiting))
+            else:
+                time.sleep(0.005)
+        return b"".join(chunks).decode("utf-8", errors="replace")
 
 
 class GrblController:
@@ -131,6 +157,15 @@ class GrblController:
             if line.startswith("<"):
                 return GrblStatus.parse(line)
         raise GrblError(f"No status line returned: {lines}")
+
+    def realtime_status(self, response_window_s: float = 0.08) -> GrblStatus:
+        self._transport.write_bytes(b"?")
+        text = self._transport.read_available(response_window_s)
+        for line in reversed(text.replace("\r", "\n").split("\n")):
+            line = line.strip()
+            if line.startswith("<"):
+                return GrblStatus.parse(line)
+        raise GrblError(f"No realtime status line returned: {text!r}")
 
     def wait_for_idle(self, timeout_s: float = 120.0, poll_interval_s: float = 0.2) -> GrblStatus:
         end = time.time() + timeout_s

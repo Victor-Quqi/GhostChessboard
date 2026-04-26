@@ -98,6 +98,7 @@ def get_best_move(
     assert process.stderr is not None
 
     stderr_chunks: list[str] = []
+    stdout_chunks: list[str] = []
     timed_out = False
 
     def _drain_stderr() -> None:
@@ -125,6 +126,7 @@ def get_best_move(
         deadline_thread.start()
         try:
             for raw_line in process.stdout:
+                stdout_chunks.append(raw_line)
                 line = raw_line.strip()
                 if line.startswith("bestmove "):
                     tokens = line.split()
@@ -150,11 +152,27 @@ def get_best_move(
 
     if best_move is None:
         stderr_text = "".join(stderr_chunks).strip()
+        stdout_text = "".join(stdout_chunks).strip()
+        engine_error_text = _engine_error_text(stdout_text, stderr_text)
         if timed_out:
             raise EngineError(f"Engine search timed out after {timeout_s} seconds.")
-        raise EngineError(stderr_text or "Engine output did not contain a 'bestmove' line.")
+        if process.returncode not in {None, 0} and engine_error_text:
+            raise EngineError(f"Engine exited with code {process.returncode}: {engine_error_text}")
+        raise EngineError(engine_error_text or "Engine output did not contain a 'bestmove' line.")
 
     return best_move
+
+
+def _engine_error_text(stdout_text: str, stderr_text: str) -> str:
+    """Extract high-signal engine diagnostics for CLI users."""
+
+    lines = [line.strip() for line in stdout_text.splitlines() + stderr_text.splitlines()]
+    critical = [line for line in lines if "CRITICAL ERROR" in line or "Unsupported position" in line]
+    if critical:
+        return " ".join(critical)
+    if stderr_text:
+        return stderr_text
+    return ""
 
 
 def main(argv: list[str] | None = None) -> None:

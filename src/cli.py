@@ -93,6 +93,68 @@ def build_parser() -> argparse.ArgumentParser:
     turn_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
     turn_parser.add_argument("--json", action="store_true", help="Emit the turn summary as JSON.")
 
+    demo_parser = subparsers.add_parser("demo", help="Run a human-vs-engine demo loop.")
+    demo_parser.add_argument(
+        "--carriage",
+        default="0,0",
+        metavar="X,Y",
+        help="Initial empty-carriage grid point. Default: 0,0.",
+    )
+    demo_parser.add_argument(
+        "--reset-carriage",
+        default="0,0",
+        metavar="X,Y",
+        help="Software carriage position after a reset command. Default: 0,0.",
+    )
+    demo_parser.add_argument(
+        "--turns",
+        type=int,
+        help="Maximum number of machine responses to run. Default: run until Ctrl+C or error.",
+    )
+    demo_parser.add_argument(
+        "--fen-side",
+        default="black",
+        metavar="SIDE",
+        help="Engine side to move after each human confirmation. Default: black.",
+    )
+    demo_parser.add_argument(
+        "--trigger",
+        choices=["grbl-y-clicks", "grbl-y-double-click", "enter"],
+        default="grbl-y-clicks",
+        help="Operator command source. GRBL clicks use double-click for confirm and triple-click for reset.",
+    )
+    demo_parser.add_argument("--engine", type=Path, help="Optional engine executable path.")
+    demo_parser.add_argument("--depth", type=int, default=15, help="Search depth.")
+    demo_parser.add_argument("--threads", type=int, help="Optional engine thread count.")
+    demo_parser.add_argument("--hash-mb", type=int, help="Optional transposition-table size in MiB.")
+    demo_parser.add_argument("--timeout-s", type=float, default=15.0, help="Search timeout in seconds.")
+    demo_parser.add_argument(
+        "--no-verify-vision",
+        action="store_true",
+        help="Do not verify the board with vision after the machine move.",
+    )
+    demo_parser.add_argument(
+        "--ignore-capture-vision",
+        action="store_true",
+        help="Ignore capture-area slot differences during post-move vision verification.",
+    )
+    demo_parser.add_argument("--print-path", action="store_true", help="Print resolved physical paths.")
+    demo_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
+    demo_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
+    demo_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    demo_parser.add_argument("--button-axis", default="Y", help="GRBL limit pin used by the click trigger.")
+    demo_parser.add_argument(
+        "--button-pressed-when",
+        choices=["absent", "present"],
+        default="absent",
+        help="For GRBL pin trigger, treat the button as pressed when the pin is absent or present in Pn.",
+    )
+    demo_parser.add_argument("--button-poll-ms", type=float, default=30.0, help="Button polling interval.")
+    demo_parser.add_argument("--double-click-min-ms", type=float, default=120.0, help="Minimum double-click gap.")
+    demo_parser.add_argument("--double-click-max-ms", type=float, default=1000.0, help="Maximum double-click gap.")
+    demo_parser.add_argument("--button-debounce-ms", type=float, default=70.0, help="Button debounce window.")
+    demo_parser.add_argument("--json", action="store_true", help="Emit the demo summary as JSON.")
+
     subparsers.add_parser("status", help="Read current GRBL status.")
 
     magnet_parser = subparsers.add_parser("magnet", help="Turn magnet on or off.")
@@ -301,6 +363,14 @@ def _execution_to_dict(execution) -> dict | None:
     return {"kind": "move", "route": _route_to_dict(execution)}
 
 
+def _board_state_to_dict(state) -> dict:
+    return {
+        "occupied_cells": [list(cell) for cell in sorted(state.occupied_cells)],
+        "filled_capture_slots": sorted(state.filled_capture_slots),
+        "carriage_cell": list(state.carriage_cell) if state.carriage_cell is not None else None,
+    }
+
+
 def _scenario_summary_to_dict(summary) -> dict:
     return {
         "name": summary.name,
@@ -335,6 +405,29 @@ def _turn_result_to_dict(result) -> dict:
         "visual_status": result.visual_status,
         "visual_diff": result.visual_diff,
         "execution": _execution_to_dict(result.execution),
+        "final_state": _board_state_to_dict(result.final_state),
+    }
+
+
+def _demo_summary_to_dict(summary) -> dict:
+    return {
+        "requested_turns": summary.requested_turns,
+        "completed_turns": summary.completed_turns,
+        "halted_at_index": summary.halted_at_index,
+        "halt_reason": summary.halt_reason,
+        "reset_count": summary.reset_count,
+        "records": [
+            {
+                "index": record.index,
+                "confirmation": {
+                    "source": record.confirmation.source,
+                    "detail": record.confirmation.detail,
+                },
+                "error": record.error,
+                "turn": _turn_result_to_dict(record.turn) if record.turn is not None else None,
+            }
+            for record in summary.records
+        ],
     }
 
 
@@ -355,6 +448,19 @@ def _print_turn_result(result, *, print_path: bool) -> None:
     if result.visual_diff is not None:
         diff_suffix = f" diff={json.dumps(result.visual_diff, ensure_ascii=False)}"
     print(f"Visual: {result.visual_status}{diff_suffix}")
+
+
+def _print_demo_record(record, *, print_path: bool) -> None:
+    if record.error is not None:
+        print(f"  ! turn failed: {record.error}")
+        return
+    assert record.turn is not None
+    _print_turn_result(record.turn, print_path=print_path)
+    state = record.turn.final_state
+    if state.carriage_cell is not None:
+        print(f"  carriage assumed at: ({state.carriage_cell[0]},{state.carriage_cell[1]})")
+    if state.filled_capture_slots:
+        print(f"  occupied capture slots: {','.join(str(slot) for slot in sorted(state.filled_capture_slots))}")
 
 
 def resolve_vision_result_path(config: AppConfig, override: Path | None) -> Path:
@@ -390,6 +496,29 @@ def resolve_initial_board_state(args: argparse.Namespace) -> "BoardState":
     occupied = {parse_cell(token) for token in getattr(args, "occupied", [])}
     filled_slots = set(getattr(args, "filled_slot", []))
     return BoardState(occupied_cells=occupied, filled_capture_slots=filled_slots)
+
+
+def build_confirmation_trigger(args: argparse.Namespace, controller: "GrblController"):
+    from src.confirm import EnterConfirmationTrigger, GrblPinClickTrigger
+
+    if args.trigger == "enter":
+        return EnterConfirmationTrigger(prompt="Human move done. Press Enter for machine response...")
+    if args.trigger in {"grbl-y-clicks", "grbl-y-double-click"}:
+        def _on_press(detail: str) -> None:
+            if not args.json:
+                print(f"  button press detected: {detail}", flush=True)
+
+        return GrblPinClickTrigger(
+            read_status=controller.realtime_status,
+            axis=args.button_axis,
+            pressed_when=args.button_pressed_when,
+            poll_s=args.button_poll_ms / 1000.0,
+            min_gap_s=args.double_click_min_ms / 1000.0,
+            max_gap_s=args.double_click_max_ms / 1000.0,
+            debounce_s=args.button_debounce_ms / 1000.0,
+            on_press=_on_press,
+        )
+    raise ValueError(f"Unsupported confirmation trigger: {args.trigger}")
 
 
 def run(args: argparse.Namespace) -> None:
@@ -508,6 +637,75 @@ def run(args: argparse.Namespace) -> None:
     with GrblController(config) as controller:
         controller.initialize()
         executor = MotionExecutor(controller, config)
+
+        if args.command == "demo":
+            from src.demo import run_human_machine_demo
+            from src.vision.probe import GhostVisionCliProbe
+
+            probe = GhostVisionCliProbe(config=config.vision.probe)
+            trigger = build_confirmation_trigger(args, controller)
+            initial_carriage = parse_cell(args.carriage)
+            if not args.json:
+                print(
+                    "Demo assumes the empty carriage is currently at "
+                    f"({initial_carriage[0]},{initial_carriage[1]})."
+                )
+
+            def _on_waiting(index: int) -> None:
+                total = str(args.turns) if args.turns is not None else "∞"
+                print(f"[{index + 1}/{total}] Waiting for human confirmation via {args.trigger}...")
+
+            def _on_confirmed(index: int, event) -> None:
+                detail = f" {event.detail}" if event.detail else ""
+                total = str(args.turns) if args.turns is not None else "∞"
+                print(f"[{index + 1}/{total}] confirmed: {event.source}{detail}")
+                print("  capturing board and calculating machine move...")
+
+            def _on_reset(index: int, event, cell) -> None:
+                detail = f" {event.detail}" if event.detail else ""
+                total = str(args.turns) if args.turns is not None else "∞"
+                print(
+                    f"[{index + 1}/{total}] reset: {event.source}{detail}; "
+                    f"carriage assumed at ({cell[0]},{cell[1]})"
+                )
+
+            def _on_turn_done(record) -> None:
+                _print_demo_record(record, print_path=args.print_path)
+
+            summary = run_human_machine_demo(
+                executor=executor,
+                probe=probe,
+                trigger=trigger,
+                carriage_cell=initial_carriage,
+                reset_carriage_cell=parse_cell(args.reset_carriage),
+                side_to_move=args.fen_side,
+                max_turns=args.turns,
+                engine_path=args.engine,
+                depth=args.depth,
+                threads=args.threads,
+                hash_mb=args.hash_mb,
+                timeout_s=args.timeout_s,
+                verify_vision=not args.no_verify_vision,
+                verify_capture_slots=not args.ignore_capture_vision,
+                include_compensation=not args.no_comp,
+                on_waiting=None if args.json else _on_waiting,
+                on_confirmed=None if args.json else _on_confirmed,
+                on_reset=None if args.json else _on_reset,
+                on_turn_done=None if args.json else _on_turn_done,
+            )
+
+            if args.json:
+                print(json.dumps(_demo_summary_to_dict(summary), indent=2, ensure_ascii=False))
+            else:
+                print(
+                    f"Demo: completed {summary.completed_turns}/{summary.requested_turns} "
+                    f"machine turns; resets={summary.reset_count}."
+                )
+                if summary.halted_at_index is not None:
+                    print(f"Halted at turn {summary.halted_at_index + 1}: {summary.halt_reason}")
+            if summary.halted_at_index is not None:
+                raise SystemExit(3)
+            return
 
         if args.command == "status":
             print(controller.status().raw)
@@ -647,13 +845,14 @@ def main() -> None:
 
 def _handled_cli_errors() -> tuple[type[Exception], ...]:
     from src.board_state import BoardStateError
+    from src.demo import DemoError
     from src.engine import EngineError
     from src.motion.planner import MovePlanningError
     from src.scenario import ScenarioError
     from src.turn import TurnError
     from src.vision.probe import VisionProbeError
 
-    return (BoardStateError, EngineError, MovePlanningError, ScenarioError, TurnError, VisionProbeError)
+    return (BoardStateError, DemoError, EngineError, MovePlanningError, ScenarioError, TurnError, VisionProbeError)
 
 
 if __name__ == "__main__":

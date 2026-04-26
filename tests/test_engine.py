@@ -116,6 +116,19 @@ class EngineTests(unittest.TestCase):
             with self.assertRaisesRegex(EngineError, "bestmove"):
                 get_best_move(INITIAL_FEN, engine_path="/opt/pikafish/pikafish")
 
+    def test_get_best_move_reports_engine_critical_error(self) -> None:
+        stdout_lines = [
+            "uciok\n",
+            "readyok\n",
+            "info string CRITICAL ERROR: Command `position fen bad` failed. Reason: Unsupported position.\n",
+        ]
+        with patch(
+            "src.engine.subprocess.Popen",
+            side_effect=_popen_factory(stdout_lines, returncode=1),
+        ):
+            with self.assertRaisesRegex(EngineError, "Unsupported position"):
+                get_best_move(INITIAL_FEN, engine_path="/opt/pikafish/pikafish")
+
     def test_get_best_move_reports_timeout_without_relying_on_returncode_sign(self) -> None:
         with patch(
             "src.engine.subprocess.Popen",

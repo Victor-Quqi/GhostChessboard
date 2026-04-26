@@ -39,6 +39,7 @@ class TurnResult:
     execution: ExecutedRoute | CaptureExecution
     visual_status: str
     visual_diff: dict[str, list] | None
+    final_state: BoardState
 
 
 def uci_to_cells(move_uci: str) -> tuple[GridPoint, GridPoint]:
@@ -78,10 +79,13 @@ def execute_engine_turn(
     probe: BoardStateProbe | None = None,
     verify_capture_slots: bool = True,
     include_compensation: bool = True,
+    known_capture_slots: set[int] | None = None,
 ) -> TurnResult:
     """Run one AI turn from an already captured visual snapshot."""
 
     initial_state = build_board_state_from_snapshot(snapshot, carriage_cell=carriage_cell)
+    if known_capture_slots is not None:
+        initial_state.filled_capture_slots.update(known_capture_slots)
     fen = snapshot_to_xiangqi_fen(snapshot, side_to_move=side_to_move)
     best_move = get_best_move(
         fen,
@@ -129,6 +133,11 @@ def execute_engine_turn(
         execution=execution,
         visual_status=visual_status,
         visual_diff=visual_diff,
+        final_state=BoardState(
+            occupied_cells=set(board.state.occupied_cells),
+            filled_capture_slots=set(board.state.filled_capture_slots),
+            carriage_cell=board.state.carriage_cell,
+        ),
     )
 
 

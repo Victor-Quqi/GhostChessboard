@@ -37,6 +37,7 @@ CLI 调试入口：
 - 若已安装命令入口，也可使用 `ghostchessboard vision-result path/to/result.json --json`
 - 场景复验同理：未安装命令入口时使用 `python -m src.cli scenario <json> --verify-vision`
 - 单回合闭环入口：`python -m src.cli turn --carriage X,Y --verify-vision`
+- 人机演示入口：`python -m src.cli demo`；默认假定空载电磁铁从 `(0,0)` 开始并持续运行到 `Ctrl+C` 或错误停止，GRBL `Y` 限位双击为“人类已走完”，三击为软件位置复位到 `(0,0)`，也可用 `--trigger enter` 切回键盘确认
 - 如果当前视觉链路不输出吃子区槽位，可加 `--ignore-capture-vision` 暂时忽略 `capture_pieces` 差异。
 
 JSON 示例（必填：`provider`、`board_pieces`；`frame_id`、`produced_at`、`capture_pieces`、`pose`、`metadata` 均为可选）：
