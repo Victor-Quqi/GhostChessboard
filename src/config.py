@@ -33,6 +33,7 @@ class MotionConfig:
 
 @dataclass(slots=True)
 class CompensationConfig:
+    # Release overshoot compensates annular force bias; measured dynamic lag is about 3-5 mm.
     release_overshoot_mm: float = 15.0
 
 

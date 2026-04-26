@@ -73,13 +73,14 @@ ESP32 GRBL + TMC2209 ×2
   - `M5` 断电
   - 电磁铁空载回到目标点中心
 - 当前默认初值：
-  - `release_overshoot = 15mm`
+  - `release_overshoot = 15mm`（释放补偿；不等同于 `3~5mm` 纯动态滞后）
   - `magnet_exclusion_radius = 30mm`
   - `soft_clearance = 8mm`
 - 当前默认速度：
   - 带棋拖动 `move_feed = 2400 mm/min`
   - 空载移动 `return_feed = 7200 mm/min`
 - 中间路径点不做释放补偿；释放补偿只发生在最终落点。
+- 较大落点偏差主因是吸盘式电磁铁的环状磁力峰值；纯动态跟随滞后约为 `3~5mm`。
 - 小车卡滞会导致开环丢位置，需人工复位到已知格点后再继续
 
 ### 路径规划
