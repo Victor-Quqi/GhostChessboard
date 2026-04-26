@@ -32,8 +32,8 @@ class FakeExecutor:
         self.drag_calls: list[tuple[tuple[tuple[float, float], ...], bool]] = []
         self.jog_calls: list[tuple[float, float, float | None]] = []
 
-    def drag_plan(self, plan, *, include_compensation: bool = True) -> None:
-        self.drag_calls.append((tuple(plan.waypoints_mm), include_compensation))
+    def drag_plan(self, plan, *, include_release_offset: bool = True) -> None:
+        self.drag_calls.append((tuple(plan.waypoints_mm), include_release_offset))
 
     def jog(self, dx_mm: float, dy_mm: float, *, feed_mm_min: float | None = None) -> None:
         self.jog_calls.append((dx_mm, dy_mm, feed_mm_min))

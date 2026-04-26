@@ -20,4 +20,4 @@ class DragPlan:
     end: GridPoint
     waypoints_mm: list[PointMm]
     release_mm: PointMm
-    overshoot_vector_mm: PointMm
+    release_offset_vector_mm: PointMm

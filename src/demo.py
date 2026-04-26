@@ -65,7 +65,7 @@ def run_human_machine_demo(
     timeout_s: float = 15.0,
     verify_vision: bool = True,
     verify_capture_slots: bool = True,
-    include_compensation: bool = True,
+    include_release_offset: bool = True,
     on_waiting: Callable[[int], None] | None = None,
     on_confirmed: Callable[[int, OperatorCommand], None] | None = None,
     on_reset: Callable[[int, OperatorCommand, GridPoint], None] | None = None,
@@ -117,7 +117,7 @@ def run_human_machine_demo(
                 timeout_s=timeout_s,
                 probe=probe if verify_vision else None,
                 verify_capture_slots=verify_capture_slots,
-                include_compensation=include_compensation,
+                include_release_offset=include_release_offset,
                 known_capture_slots=known_capture_slots,
             )
             known_capture_slots = set(turn.final_state.filled_capture_slots)

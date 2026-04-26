@@ -34,7 +34,7 @@ class PhysicalPlannerTests(unittest.TestCase):
                 config.planning.magnet_exclusion_radius_mm,
             )
 
-    def test_final_overshoot_avoids_nearby_piece(self) -> None:
+    def test_final_release_offset_avoids_nearby_piece(self) -> None:
         config = AppConfig()
         config.planning.magnet_exclusion_radius_mm = 30.0
         end = (2, 0)
@@ -52,9 +52,24 @@ class PhysicalPlannerTests(unittest.TestCase):
             plan.waypoints_mm[-1][0] - plan.waypoints_mm[-2][0],
             plan.waypoints_mm[-1][1] - plan.waypoints_mm[-2][1],
         )
-        self.assertGreater(_cosine(final_segment, plan.overshoot_vector_mm), 0.99)
+        self.assertGreater(_cosine(final_segment, plan.release_offset_vector_mm), 0.99)
 
-    def test_horse_opening_can_use_direct_path_with_smaller_magnet_radius(self) -> None:
+    def test_small_magnet_radius_still_keeps_dragged_piece_clear(self) -> None:
+        config = AppConfig()
+        config.planning.magnet_exclusion_radius_mm = 12.0
+        obstacle = (1, 0)
+
+        plan = plan_move({obstacle}, (0, 0), (2, 0), config=config)
+        obstacle_mm = grid_point_to_xy(config, obstacle)
+        dragged_clearance = 2.0 * config.planning.piece_radius_mm + config.planning.piece_collision_margin_mm
+
+        for start, end in _dragged_piece_trace([*plan.waypoints_mm, plan.release_mm], config):
+            self.assertGreaterEqual(
+                _distance_point_to_segment(obstacle_mm, start, end),
+                dragged_clearance,
+            )
+
+    def test_horse_opening_keeps_dragged_piece_clear_with_smaller_magnet_radius(self) -> None:
         from src.scenario import load_scenario
 
         config = AppConfig()
@@ -74,7 +89,14 @@ class PhysicalPlannerTests(unittest.TestCase):
             config=config,
         )
 
-        self.assertEqual(len(plan.waypoints_mm), 2)
+        dragged_clearance = 2.0 * config.planning.piece_radius_mm + config.planning.piece_collision_margin_mm
+        for obstacle in state.occupied_cells - {horse_step.start}:
+            obstacle_mm = grid_point_to_xy(config, obstacle)
+            for start, end in _dragged_piece_trace([*plan.waypoints_mm, plan.release_mm], config):
+                self.assertGreaterEqual(
+                    _distance_point_to_segment(obstacle_mm, start, end),
+                    dragged_clearance,
+                )
 
     def test_tight_top_edge_move_can_use_lateral_margin(self) -> None:
         from src.scenario import load_scenario
@@ -158,6 +180,25 @@ def _cosine(left, right) -> float:
     if left_length <= 1e-12 or right_length <= 1e-12:
         return 0.0
     return (left[0] * right[0] + left[1] * right[1]) / (left_length * right_length)
+
+
+def _dragged_piece_trace(points, config):
+    offset = config.physics.release_offset_mm
+    previous_tail_end = None
+    for start, end in zip(points, points[1:]):
+        segment = (end[0] - start[0], end[1] - start[1])
+        length = math.hypot(segment[0], segment[1])
+        if length <= 1e-12:
+            continue
+        unit = (segment[0] / length, segment[1] / length)
+        tail_start = (start[0] - unit[0] * offset, start[1] - unit[1] * offset)
+        tail_end = (end[0] - unit[0] * offset, end[1] - unit[1] * offset)
+        if previous_tail_end is None:
+            yield start, tail_start
+        else:
+            yield previous_tail_end, tail_start
+        yield tail_start, tail_end
+        previous_tail_end = tail_end
 
 
 if __name__ == "__main__":

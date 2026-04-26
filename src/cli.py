@@ -90,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     turn_parser.add_argument("--print-path", action="store_true", help="Print the resolved physical path.")
     turn_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
     turn_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    turn_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    turn_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
     turn_parser.add_argument("--json", action="store_true", help="Emit the turn summary as JSON.")
 
     demo_parser = subparsers.add_parser("demo", help="Run a human-vs-engine demo loop.")
@@ -141,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo_parser.add_argument("--print-path", action="store_true", help="Print resolved physical paths.")
     demo_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
     demo_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    demo_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    demo_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
     demo_parser.add_argument("--button-axis", default="Y", help="GRBL limit pin used by the click trigger.")
     demo_parser.add_argument(
         "--button-pressed-when",
@@ -166,14 +166,14 @@ def build_parser() -> argparse.ArgumentParser:
     jog_parser.add_argument("--y", type=float, default=0.0)
     jog_parser.add_argument("--feed", type=float, help="Feed in mm/min.")
 
-    step_parser = subparsers.add_parser("step", help="Move one or more chess cells with segmented compensation.")
+    step_parser = subparsers.add_parser("step", help="Move one or more chess cells with release offset motion.")
     step_parser.add_argument("direction", choices=["x+", "x-", "y+", "y-"])
     step_parser.add_argument("--cells", type=int, default=1)
-    step_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    step_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
 
     route_parser = subparsers.add_parser("route", help="Run a segmented route cell by cell.")
     route_parser.add_argument("segments", nargs="+", help="Examples: x+ x-:2 y+")
-    route_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    route_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
 
     move_parser = subparsers.add_parser("move", help="Plan and execute a physical board move.")
     move_parser.add_argument("start", help="Start cell as x,y.")
@@ -207,7 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     move_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
     move_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    move_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    move_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
 
     capture_parser = subparsers.add_parser("capture", help="Move the victim to capture area, then move attacker in.")
     capture_parser.add_argument("start", help="Attacker cell as x,y.")
@@ -250,13 +250,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     capture_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
     capture_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    capture_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    capture_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
 
     scenario_parser = subparsers.add_parser("scenario", help="Run a scenario JSON file inside one GRBL session.")
     scenario_parser.add_argument("path", type=Path, help="Path to the scenario JSON file.")
     scenario_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
     scenario_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    scenario_parser.add_argument("--no-comp", action="store_true", help="Disable directional compensation.")
+    scenario_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
     scenario_parser.add_argument(
         "--verify-vision",
         action="store_true",
@@ -326,7 +326,7 @@ def print_route(label: str, execution: "ExecutedRoute") -> None:
     print(
         f"{label} release:",
         f"release=({execution.release_mm[0]:.1f},{execution.release_mm[1]:.1f}) "
-        f"overshoot=({execution.overshoot_vector_mm[0]:.1f},{execution.overshoot_vector_mm[1]:.1f})",
+        f"offset=({execution.release_offset_vector_mm[0]:.1f},{execution.release_offset_vector_mm[1]:.1f})",
     )
 
 
@@ -344,7 +344,7 @@ def _route_to_dict(route) -> dict:
         "end": list(route.end),
         "waypoints_mm": [list(point) for point in route.waypoints_mm],
         "release_mm": list(route.release_mm),
-        "overshoot_vector_mm": list(route.overshoot_vector_mm),
+        "release_offset_vector_mm": list(route.release_offset_vector_mm),
     }
 
 
@@ -618,7 +618,7 @@ def run(args: argparse.Namespace) -> None:
                 capture_slot=args.slot,
                 probe=verify_probe,
                 verify_capture_slots=not args.ignore_capture_vision,
-                include_compensation=not args.no_comp,
+                include_release_offset=not args.no_release_offset,
             )
 
         if args.json:
@@ -687,7 +687,7 @@ def run(args: argparse.Namespace) -> None:
                 timeout_s=args.timeout_s,
                 verify_vision=not args.no_verify_vision,
                 verify_capture_slots=not args.ignore_capture_vision,
-                include_compensation=not args.no_comp,
+                include_release_offset=not args.no_release_offset,
                 on_waiting=None if args.json else _on_waiting,
                 on_confirmed=None if args.json else _on_confirmed,
                 on_reset=None if args.json else _on_reset,
@@ -730,14 +730,14 @@ def run(args: argparse.Namespace) -> None:
             executor.drag_step(
                 args.direction,
                 cells=args.cells,
-                include_compensation=not args.no_comp,
+                include_release_offset=not args.no_release_offset,
             )
             return
 
         if args.command == "route":
             executor.drag_route(
                 parse_segments(args.segments),
-                include_compensation=not args.no_comp,
+                include_release_offset=not args.no_release_offset,
             )
             return
 
@@ -751,7 +751,7 @@ def run(args: argparse.Namespace) -> None:
             execution = board.move_piece(
                 start=start,
                 end=end,
-                include_compensation=not args.no_comp,
+                include_release_offset=not args.no_release_offset,
             )
 
             if args.print_path:
@@ -769,7 +769,7 @@ def run(args: argparse.Namespace) -> None:
                 start=start,
                 target=target,
                 capture_slot=args.slot,
-                include_compensation=not args.no_comp,
+                include_release_offset=not args.no_release_offset,
             )
 
             if args.print_path:
@@ -814,6 +814,7 @@ def run(args: argparse.Namespace) -> None:
                 board,
                 probe=probe,
                 verify_capture_slots=not args.ignore_capture_vision,
+                include_release_offset=not args.no_release_offset,
                 on_step_start=None if args.json else _on_step_start,
                 on_step_done=None if args.json else _on_step_done,
             )

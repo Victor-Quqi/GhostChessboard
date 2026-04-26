@@ -25,7 +25,7 @@ class ExecutedRoute:
     end: GridPoint
     waypoints_mm: list[PointMm]
     release_mm: PointMm
-    overshoot_vector_mm: PointMm
+    release_offset_vector_mm: PointMm
 
 
 @dataclass(slots=True)
@@ -59,7 +59,7 @@ class BoardController:
         start: BoardCell,
         end: BoardCell,
         *,
-        include_compensation: bool = True,
+        include_release_offset: bool = True,
     ) -> ExecutedRoute:
         """Move one piece across the main board."""
         validate_main_board_cell(start)
@@ -78,7 +78,7 @@ class BoardController:
             end=end,
             config=self._executor.config,
         )
-        self._executor.drag_plan(plan, include_compensation=include_compensation)
+        self._executor.drag_plan(plan, include_release_offset=include_release_offset)
 
         self._state.occupied_cells.remove(start)
         self._state.occupied_cells.add(end)
@@ -91,7 +91,7 @@ class BoardController:
         target: BoardCell,
         *,
         capture_slot: int | None = None,
-        include_compensation: bool = True,
+        include_release_offset: bool = True,
     ) -> CaptureExecution:
         """Remove the target piece, then move the attacker into the freed cell."""
         validate_main_board_cell(start)
@@ -117,7 +117,7 @@ class BoardController:
             max_x=9,
             max_y=10,
         )
-        self._executor.drag_plan(victim_plan, include_compensation=include_compensation)
+        self._executor.drag_plan(victim_plan, include_release_offset=include_release_offset)
 
         self._state.occupied_cells.remove(target)
         self._state.filled_capture_slots.add(resolved_slot)
@@ -130,7 +130,7 @@ class BoardController:
             end=target,
             config=self._executor.config,
         )
-        self._executor.drag_plan(attacker_plan, include_compensation=include_compensation)
+        self._executor.drag_plan(attacker_plan, include_release_offset=include_release_offset)
 
         self._state.occupied_cells.remove(start)
         self._state.occupied_cells.add(target)
@@ -170,5 +170,5 @@ class BoardController:
             end=plan.end,
             waypoints_mm=list(plan.waypoints_mm),
             release_mm=plan.release_mm,
-            overshoot_vector_mm=plan.overshoot_vector_mm,
+            release_offset_vector_mm=plan.release_offset_vector_mm,
         )

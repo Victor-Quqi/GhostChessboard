@@ -64,10 +64,10 @@ class MotionExecutor:
             return self._config.motion.y_cell_pitch_mm
         raise ValueError(f"Unsupported direction: {direction}")
 
-    def _overshoot_pwm_profile(self) -> list[int | None]:
-        start_pwm = self._config.motion.overshoot_pwm
-        end_pwm = self._config.motion.overshoot_pwm_end
-        segments = max(1, self._config.motion.overshoot_pwm_segments)
+    def _release_pwm_profile(self) -> list[int | None]:
+        start_pwm = self._config.motion.release_pwm
+        end_pwm = self._config.motion.release_pwm_end
+        segments = max(1, self._config.motion.release_pwm_segments)
 
         if start_pwm is None:
             return [None]
@@ -84,40 +84,40 @@ class MotionExecutor:
             pwm_values.append(pwm)
         return pwm_values
 
-    def compensated_distance_mm(self, direction: str, cells: int = 1, include_compensation: bool = True) -> float:
+    def release_offset_distance_mm(self, direction: str, cells: int = 1, include_release_offset: bool = True) -> float:
         if cells <= 0:
             raise ValueError("cells must be positive.")
         sign_x, sign_y = self._axis_vector(direction)
         pitch = self._pitch_for_direction(direction) * cells
-        overshoot = self._config.compensation.release_overshoot_mm if include_compensation else 0.0
-        signed_distance = pitch + overshoot
+        release_offset = self._config.physics.release_offset_mm if include_release_offset else 0.0
+        signed_distance = pitch + release_offset
         return signed_distance * (sign_x or sign_y)
 
-    def step(self, direction: str, *, cells: int = 1, include_compensation: bool = True) -> None:
-        distance = self.compensated_distance_mm(
+    def step(self, direction: str, *, cells: int = 1, include_release_offset: bool = True) -> None:
+        distance = self.release_offset_distance_mm(
             direction=direction,
             cells=cells,
-            include_compensation=include_compensation,
+            include_release_offset=include_release_offset,
         )
         if direction.startswith("x"):
             self.jog(distance, 0.0)
         else:
             self.jog(0.0, distance)
 
-    def drag_step(self, direction: str, *, cells: int = 1, include_compensation: bool = True) -> None:
+    def drag_step(self, direction: str, *, cells: int = 1, include_release_offset: bool = True) -> None:
         if cells <= 0:
             raise ValueError("cells must be positive.")
 
         sign_x, sign_y = self._axis_vector(direction)
         pitch = self._pitch_for_direction(direction) * cells
-        overshoot = self._config.compensation.release_overshoot_mm if include_compensation else 0.0
-        total_drag = pitch + overshoot
+        release_offset = self._config.physics.release_offset_mm if include_release_offset else 0.0
+        total_drag = pitch + release_offset
         if total_drag <= 0:
             raise ValueError(
-                f"Invalid step profile for {direction}: pitch={pitch}, overshoot={overshoot}"
+                f"Invalid step profile for {direction}: pitch={pitch}, release_offset={release_offset}"
             )
         drag_to_target = min(total_drag, pitch)
-        overshoot_drag = total_drag - drag_to_target
+        release_drag = total_drag - drag_to_target
 
         move_feed = self._config.motion.move_feed_mm_min
         total_drag_timeout_s = 0.0
@@ -142,8 +142,8 @@ class MotionExecutor:
                     wait_for_ack=False,
                 )
 
-            if overshoot_drag:
-                pwm_profile = self._overshoot_pwm_profile()
+            if release_drag:
+                pwm_profile = self._release_pwm_profile()
                 segment_count = len(pwm_profile)
                 previous_distance = 0.0
 
@@ -151,7 +151,7 @@ class MotionExecutor:
                     if pwm is not None and pwm != self._config.motion.drag_pwm:
                         self._controller.magnet_on(pwm, wait_for_ack=False)
 
-                    target_distance = overshoot_drag * index / segment_count
+                    target_distance = release_drag * index / segment_count
                     segment_distance = target_distance - previous_distance
                     previous_distance = target_distance
                     total_drag_timeout_s += self._controller.jog_relative(
@@ -169,22 +169,22 @@ class MotionExecutor:
             if magnet_engaged and not released:
                 self._safe_magnet_off()
 
-        if overshoot:
+        if release_offset:
             self.jog(
-                -(sign_x * overshoot),
-                -(sign_y * overshoot),
+                -(sign_x * release_offset),
+                -(sign_y * release_offset),
                 feed_mm_min=self._config.motion.return_feed_mm_min,
             )
 
-    def drag_route(self, segments: Iterable[Segment], *, include_compensation: bool = True) -> None:
+    def drag_route(self, segments: Iterable[Segment], *, include_release_offset: bool = True) -> None:
         for segment in segments:
             self.drag_step(
                 segment.direction,
                 cells=segment.cells,
-                include_compensation=include_compensation,
+                include_release_offset=include_release_offset,
             )
 
-    def drag_plan(self, plan: DragPlan, *, include_compensation: bool = True) -> None:
+    def drag_plan(self, plan: DragPlan, *, include_release_offset: bool = True) -> None:
         if len(plan.waypoints_mm) < 2:
             return
 
@@ -215,10 +215,10 @@ class MotionExecutor:
                 )
                 current = target
 
-            if include_compensation:
-                overshoot_pwm = self._config.motion.overshoot_pwm
-                if overshoot_pwm is not None and overshoot_pwm != self._config.motion.drag_pwm:
-                    self._controller.magnet_on(overshoot_pwm, wait_for_ack=False)
+            if include_release_offset:
+                release_pwm = self._config.motion.release_pwm
+                if release_pwm is not None and release_pwm != self._config.motion.drag_pwm:
+                    self._controller.magnet_on(release_pwm, wait_for_ack=False)
 
                 dx_mm = plan.release_mm[0] - current[0]
                 dy_mm = plan.release_mm[1] - current[1]
@@ -239,7 +239,7 @@ class MotionExecutor:
             if magnet_engaged and not released:
                 self._safe_magnet_off()
 
-        if include_compensation:
+        if include_release_offset:
             self._move_empty_to(current, plan.waypoints_mm[-1])
 
     def _move_empty_to(self, current: PointMm, target: PointMm) -> PointMm:

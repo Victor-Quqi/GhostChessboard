@@ -78,7 +78,7 @@ def execute_engine_turn(
     capture_slot: int | None = None,
     probe: BoardStateProbe | None = None,
     verify_capture_slots: bool = True,
-    include_compensation: bool = True,
+    include_release_offset: bool = True,
     known_capture_slots: set[int] | None = None,
 ) -> TurnResult:
     """Run one AI turn from an already captured visual snapshot."""
@@ -110,13 +110,13 @@ def execute_engine_turn(
             start=start,
             target=end,
             capture_slot=capture_slot,
-            include_compensation=include_compensation,
+            include_release_offset=include_release_offset,
         )
     else:
         execution = board.move_piece(
             start=start,
             end=end,
-            include_compensation=include_compensation,
+            include_release_offset=include_release_offset,
         )
 
     visual_status, visual_diff = verify_board_state(

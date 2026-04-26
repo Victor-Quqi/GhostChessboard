@@ -57,7 +57,7 @@ class MotionExecutorSafetyTests(unittest.TestCase):
             end=(0, 1),
             waypoints_mm=[(0.0, 0.0), (0.0, 42.0)],
             release_mm=(0.0, 57.0),
-            overshoot_vector_mm=(0.0, 15.0),
+            release_offset_vector_mm=(0.0, 15.0),
         )
 
         with self.assertRaisesRegex(TimeoutError, "still moving"):

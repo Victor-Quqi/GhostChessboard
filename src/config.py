@@ -22,9 +22,9 @@ class MotionConfig:
     y_cell_pitch_mm: float = 337.0 / 8.0
     engage_pwm: int = 1000
     drag_pwm: int = 1000
-    overshoot_pwm: int | None = 500
-    overshoot_pwm_end: int | None = None
-    overshoot_pwm_segments: int = 1
+    release_pwm: int | None = 500
+    release_pwm_end: int | None = None
+    release_pwm_segments: int = 1
     move_feed_mm_min: float = 2400.0
     return_feed_mm_min: float = 7200.0
     engage_delay_s: float = 0.0
@@ -32,9 +32,13 @@ class MotionConfig:
 
 
 @dataclass(slots=True)
-class CompensationConfig:
-    # Release overshoot compensates annular force bias; measured dynamic lag is about 3-5 mm.
-    release_overshoot_mm: float = 15.0
+class PhysicsConfig:
+    magnet_ring_offset_mm: float = 9.0
+    drag_lag_mm: float = 6.0
+
+    @property
+    def release_offset_mm(self) -> float:
+        return self.magnet_ring_offset_mm + self.drag_lag_mm
 
 
 @dataclass(slots=True)
@@ -103,7 +107,7 @@ class AppConfig:
     serial: SerialConfig = field(default_factory=SerialConfig)
     grbl: GrblConfig = field(default_factory=GrblConfig)
     motion: MotionConfig = field(default_factory=MotionConfig)
-    compensation: CompensationConfig = field(default_factory=CompensationConfig)
+    physics: PhysicsConfig = field(default_factory=PhysicsConfig)
     planning: PlanningConfig = field(default_factory=PlanningConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
 
@@ -114,7 +118,7 @@ class AppConfig:
 def _merge_dataclass(instance: Any, updates: dict[str, Any]) -> None:
     for key, value in updates.items():
         if not hasattr(instance, key):
-            continue
+            raise ValueError(f"Unknown config field: {key}")
 
         current = getattr(instance, key)
         if is_dataclass(current) and isinstance(value, dict):

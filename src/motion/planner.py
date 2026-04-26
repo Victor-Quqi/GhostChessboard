@@ -62,7 +62,7 @@ def plan_grid_move(
             end=end,
             waypoints_mm=[start_mm],
             release_mm=start_mm,
-            overshoot_vector_mm=(0.0, 0.0),
+            release_offset_vector_mm=(0.0, 0.0),
         )
 
     blocked = set(occupied)
@@ -75,12 +75,12 @@ def plan_grid_move(
     ]
     start_mm = grid_point_to_xy(config, start)
     end_mm = grid_point_to_xy(config, end)
-    route_clearance = _route_clearance(config)
+    center_clearance = _center_path_clearance(config)
     roadmap = _VisibilityRoadmap.build(
         config=config,
         start_mm=start_mm,
         obstacles=obstacles,
-        clearance=route_clearance,
+        center_clearance=center_clearance,
         max_x=max_x,
         max_y=max_y,
     )
@@ -96,7 +96,7 @@ def plan_grid_move(
             end_mm=end_mm,
             release_unit=release_unit,
             obstacles=obstacles,
-            route_clearance=route_clearance,
+            center_clearance=center_clearance,
             roadmap=roadmap,
             max_x=max_x,
             max_y=max_y,
@@ -136,40 +136,41 @@ def _plan_with_release_direction(
     end_mm: PointMm,
     release_unit: PointMm,
     obstacles: list[_Obstacle],
-    route_clearance: float,
+    center_clearance: float,
     roadmap: "_VisibilityRoadmap",
     max_x: int,
     max_y: int,
 ) -> tuple[float, DragPlan] | None:
-    overshoot_mm = config.compensation.release_overshoot_mm
+    release_offset_mm = config.physics.release_offset_mm
     approach_mm = config.planning.release_approach_mm
     approach_mm = max(approach_mm, min(config.motion.x_cell_pitch_mm, config.motion.y_cell_pitch_mm) * 0.65)
 
     anchor_mm = _sub(end_mm, _scale(release_unit, approach_mm))
-    release_mm = _add(end_mm, _scale(release_unit, overshoot_mm))
+    release_mm = _add(end_mm, _scale(release_unit, release_offset_mm))
 
     bounds = _planning_bounds(config, max_x=max_x, max_y=max_y)
     if not _inside_bounds(anchor_mm, bounds) or not _inside_bounds(release_mm, bounds):
         return None
 
-    if not _point_clear(anchor_mm, obstacles, route_clearance):
+    if not _point_clear(anchor_mm, obstacles, config.planning.magnet_exclusion_radius_mm):
         return None
-    if not _segment_clear(anchor_mm, end_mm, obstacles, route_clearance):
+    if not _motion_segment_clear(anchor_mm, end_mm, obstacles, config):
         return None
-    if not _segment_clear(end_mm, release_mm, obstacles, config.planning.magnet_exclusion_radius_mm):
+    if not _motion_segment_clear(end_mm, release_mm, obstacles, config):
         return None
 
     graph_path = roadmap.find_path_to(anchor_mm)
     if graph_path is None:
         return None
 
-    waypoints = _smooth_path(graph_path, obstacles, route_clearance)
-    if _distance(waypoints[-1], end_mm) > 1e-6:
-        waypoints.append(end_mm)
-    waypoints = _drop_collinear_waypoints(waypoints)
+    waypoints = _finish_path(_smooth_path(graph_path, obstacles, config), end_mm)
+    if not _dragged_piece_trace_clear([*waypoints, release_mm], obstacles, config):
+        waypoints = _finish_path(graph_path, end_mm)
+    if not _dragged_piece_trace_clear([*waypoints, release_mm], obstacles, config):
+        return None
 
-    cost = _path_cost(waypoints, obstacles, route_clearance, config)
-    cost += _segment_cost(end_mm, release_mm, obstacles, config.planning.magnet_exclusion_radius_mm, config)
+    cost = _path_cost(waypoints, obstacles, center_clearance, config)
+    cost += _segment_cost(end_mm, release_mm, obstacles, center_clearance, config)
     cost += _terminal_turn_cost(waypoints, release_unit, config)
 
     plan = DragPlan(
@@ -177,7 +178,7 @@ def _plan_with_release_direction(
         end=end,
         waypoints_mm=waypoints,
         release_mm=release_mm,
-        overshoot_vector_mm=_scale(release_unit, overshoot_mm),
+        release_offset_vector_mm=_scale(release_unit, release_offset_mm),
     )
     return cost, plan
 
@@ -186,7 +187,7 @@ def _plan_with_release_direction(
 class _VisibilityRoadmap:
     nodes: list[PointMm]
     obstacles: list[_Obstacle]
-    clearance: float
+    center_clearance: float
     config: AppConfig
     distances: list[float]
     previous: list[int | None]
@@ -198,7 +199,7 @@ class _VisibilityRoadmap:
         config: AppConfig,
         start_mm: PointMm,
         obstacles: list[_Obstacle],
-        clearance: float,
+        center_clearance: float,
         max_x: int,
         max_y: int,
     ) -> "_VisibilityRoadmap":
@@ -206,21 +207,21 @@ class _VisibilityRoadmap:
             config=config,
             start_mm=start_mm,
             obstacles=obstacles,
-            clearance=clearance,
+            center_clearance=center_clearance,
             max_x=max_x,
             max_y=max_y,
         )
         adjacency = _build_visibility_adjacency(
             nodes=nodes,
             obstacles=obstacles,
-            clearance=clearance,
+            center_clearance=center_clearance,
             config=config,
         )
         distances, previous = _shortest_paths_from_start(adjacency)
         return cls(
             nodes=nodes,
             obstacles=obstacles,
-            clearance=clearance,
+            center_clearance=center_clearance,
             config=config,
             distances=distances,
             previous=previous,
@@ -232,13 +233,13 @@ class _VisibilityRoadmap:
         for index, node in enumerate(self.nodes):
             if math.isinf(self.distances[index]):
                 continue
-            if not _segment_clear(node, target_mm, self.obstacles, self.clearance):
+            if not _motion_segment_clear(node, target_mm, self.obstacles, self.config):
                 continue
             cost = self.distances[index] + _segment_cost(
                 node,
                 target_mm,
                 self.obstacles,
-                self.clearance,
+                self.center_clearance,
                 self.config,
             )
             if cost < best_cost:
@@ -268,17 +269,17 @@ def _candidate_nodes(
     config: AppConfig,
     start_mm: PointMm,
     obstacles: list[_Obstacle],
-    clearance: float,
+    center_clearance: float,
     max_x: int,
     max_y: int,
 ) -> list[PointMm]:
     bounds = _planning_bounds(config, max_x=max_x, max_y=max_y)
     nodes = [start_mm]
-    orbit_radius = clearance + config.planning.waypoint_clearance_mm
+    orbit_radius = center_clearance + config.planning.waypoint_clearance_mm
     for obstacle in obstacles:
         for unit in _unit_circle(config.planning.candidate_angle_count):
             point = _add(obstacle.center_mm, _scale(unit, orbit_radius))
-            if _inside_bounds(point, bounds) and _point_clear(point, obstacles, clearance):
+            if _inside_bounds(point, bounds) and _point_clear(point, obstacles, center_clearance):
                 nodes.append(point)
     return nodes
 
@@ -287,15 +288,15 @@ def _build_visibility_adjacency(
     *,
     nodes: list[PointMm],
     obstacles: list[_Obstacle],
-    clearance: float,
+    center_clearance: float,
     config: AppConfig,
 ) -> list[list[tuple[int, float]]]:
     adjacency: list[list[tuple[int, float]]] = [[] for _ in nodes]
     for left in range(len(nodes)):
         for right in range(left + 1, len(nodes)):
-            if not _segment_clear(nodes[left], nodes[right], obstacles, clearance):
+            if not _motion_segment_clear(nodes[left], nodes[right], obstacles, config):
                 continue
-            weight = _segment_cost(nodes[left], nodes[right], obstacles, clearance, config)
+            weight = _segment_cost(nodes[left], nodes[right], obstacles, center_clearance, config)
             adjacency[left].append((right, weight))
             adjacency[right].append((left, weight))
     return adjacency
@@ -324,7 +325,7 @@ def _shortest_paths_from_start(
     return distances, previous
 
 
-def _smooth_path(path: list[PointMm], obstacles: list[_Obstacle], clearance: float) -> list[PointMm]:
+def _smooth_path(path: list[PointMm], obstacles: list[_Obstacle], config: AppConfig) -> list[PointMm]:
     if len(path) <= 2:
         return path
 
@@ -333,12 +334,19 @@ def _smooth_path(path: list[PointMm], obstacles: list[_Obstacle], clearance: flo
     while current < len(path) - 1:
         next_index = len(path) - 1
         while next_index > current + 1:
-            if _segment_clear(path[current], path[next_index], obstacles, clearance):
+            if _motion_segment_clear(path[current], path[next_index], obstacles, config):
                 break
             next_index -= 1
         smoothed.append(path[next_index])
         current = next_index
     return smoothed
+
+
+def _finish_path(path: list[PointMm], end_mm: PointMm) -> list[PointMm]:
+    waypoints = list(path)
+    if _distance(waypoints[-1], end_mm) > 1e-6:
+        waypoints.append(end_mm)
+    return _drop_collinear_waypoints(waypoints)
 
 
 def _drop_collinear_waypoints(path: list[PointMm]) -> list[PointMm]:
@@ -357,11 +365,15 @@ def _drop_collinear_waypoints(path: list[PointMm]) -> list[PointMm]:
     return reduced
 
 
-def _route_clearance(config: AppConfig) -> float:
-    piece_collision_clearance = (
-        2.0 * config.planning.piece_radius_mm + config.planning.piece_collision_margin_mm
+def _center_path_clearance(config: AppConfig) -> float:
+    return max(
+        config.planning.magnet_exclusion_radius_mm,
+        _dragged_piece_clearance(config) + config.physics.release_offset_mm,
     )
-    return max(config.planning.magnet_exclusion_radius_mm, piece_collision_clearance)
+
+
+def _dragged_piece_clearance(config: AppConfig) -> float:
+    return 2.0 * config.planning.piece_radius_mm + config.planning.piece_collision_margin_mm
 
 
 def _planning_bounds(config: AppConfig, *, max_x: int, max_y: int) -> tuple[float, float, float, float]:
@@ -383,6 +395,45 @@ def _inside_bounds(point: PointMm, bounds: tuple[float, float, float, float]) ->
 
 def _point_clear(point: PointMm, obstacles: list[_Obstacle], clearance: float) -> bool:
     return all(_distance(point, obstacle.center_mm) >= clearance for obstacle in obstacles)
+
+
+def _motion_segment_clear(start: PointMm, end: PointMm, obstacles: list[_Obstacle], config: AppConfig) -> bool:
+    if not _segment_clear(start, end, obstacles, config.planning.magnet_exclusion_radius_mm):
+        return False
+
+    dragged_segment = _dragged_piece_segment(start, end, config)
+    if dragged_segment is None:
+        return True
+    dragged_start, dragged_end = dragged_segment
+    return _segment_clear(dragged_start, dragged_end, obstacles, _dragged_piece_clearance(config))
+
+
+def _dragged_piece_trace_clear(points: list[PointMm], obstacles: list[_Obstacle], config: AppConfig) -> bool:
+    previous_dragged_end: PointMm | None = None
+    for start, end in zip(points, points[1:]):
+        dragged_segment = _dragged_piece_segment(start, end, config)
+        if dragged_segment is None:
+            continue
+
+        dragged_start, dragged_end = dragged_segment
+        if previous_dragged_end is None:
+            if not _segment_clear(start, dragged_start, obstacles, _dragged_piece_clearance(config)):
+                return False
+        elif not _segment_clear(previous_dragged_end, dragged_start, obstacles, _dragged_piece_clearance(config)):
+            return False
+
+        if not _segment_clear(dragged_start, dragged_end, obstacles, _dragged_piece_clearance(config)):
+            return False
+        previous_dragged_end = dragged_end
+    return True
+
+
+def _dragged_piece_segment(start: PointMm, end: PointMm, config: AppConfig) -> tuple[PointMm, PointMm] | None:
+    direction = _unit(_sub(end, start))
+    if _distance((0.0, 0.0), direction) <= 1e-9:
+        return None
+    offset = _scale(direction, config.physics.release_offset_mm)
+    return _sub(start, offset), _sub(end, offset)
 
 
 def _segment_clear(start: PointMm, end: PointMm, obstacles: list[_Obstacle], clearance: float) -> bool:

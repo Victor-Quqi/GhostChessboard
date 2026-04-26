@@ -21,7 +21,7 @@ class FakeExecutor:
         self.drag_calls = 0
         self.jog_calls = []
 
-    def drag_plan(self, _plan, *, include_compensation: bool = True) -> None:
+    def drag_plan(self, _plan, *, include_release_offset: bool = True) -> None:
         self.drag_calls += 1
 
     def jog(self, dx_mm: float, dy_mm: float, *, feed_mm_min: float | None = None) -> None:

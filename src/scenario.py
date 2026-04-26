@@ -129,6 +129,7 @@ def run_scenario(
     *,
     probe: VisionProbe | None = None,
     verify_capture_slots: bool = True,
+    include_release_offset: bool = True,
     on_step_start: Callable[[int, ScenarioStep], None] | None = None,
     on_step_done: Callable[[StepResult], None] | None = None,
 ) -> ScenarioRunSummary:
@@ -150,7 +151,11 @@ def run_scenario(
         if on_step_start is not None:
             on_step_start(index, step)
 
-        execution, exec_error = _execute_step(board, step)
+        execution, exec_error = _execute_step(
+            board,
+            step,
+            include_release_offset=include_release_offset,
+        )
         if exec_error is not None:
             result = StepResult(
                 index=index,
@@ -201,17 +206,25 @@ def run_scenario(
 
 
 def _execute_step(
-    board: BoardController, step: ScenarioStep
+    board: BoardController,
+    step: ScenarioStep,
+    *,
+    include_release_offset: bool = True,
 ) -> tuple[ExecutedRoute | CaptureExecution | None, str | None]:
     try:
         if step.kind == "move":
-            return board.move_piece(start=step.start, end=step.end), None
+            return board.move_piece(
+                start=step.start,
+                end=step.end,
+                include_release_offset=include_release_offset,
+            ), None
         if step.kind == "capture":
             return (
                 board.capture_piece(
                     start=step.start,
                     target=step.end,
                     capture_slot=step.capture_slot,
+                    include_release_offset=include_release_offset,
                 ),
                 None,
             )
