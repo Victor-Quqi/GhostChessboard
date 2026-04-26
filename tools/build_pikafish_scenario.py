@@ -1,7 +1,7 @@
 """Generate a scenario JSON by self-playing a Xiangqi engine from a start FEN.
 
 Produces a sequence of ``move`` / ``capture`` steps in the project's internal
-``(x, y)`` grid, suitable for ``ghostchessboard scenario <path>``. Captures
+``(x, y)`` grid, suitable for ``python -m src.cli scenario <path>``. Captures
 are detected by noticing that the UCI destination cell was occupied by the
 opposing side before the move.
 """

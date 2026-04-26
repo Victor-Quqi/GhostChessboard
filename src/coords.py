@@ -11,8 +11,8 @@ Capture area:
 - slot indices 0-19
 """
 
-X_CELL_PITCH_MM = 371.0 / 9.0
-Y_CELL_PITCH_MM = 335.0 / 8.0
+X_CELL_PITCH_MM = 370.0 / 9.0
+Y_CELL_PITCH_MM = 337.0 / 8.0
 GridPoint = tuple[int, int]
 
 
