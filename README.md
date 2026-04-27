@@ -12,6 +12,8 @@
 - [物料清单](docs/bom.md)
 - [项目进度](docs/progress.md)
 - [视觉集成](docs/vision.md)
+- [Web 控制台](docs/web.md)
+- [现场网络](docs/network.md)
 - [GRBL 调试记录](docs/grbl.md)
 - [电磁铁验证记录](docs/magnet.md)
 
@@ -19,8 +21,19 @@
 
 - 当前仓库负责运动控制、棋盘状态接收与系统集成。
 - 视觉推理链路已从当前仓库解耦，放在同级独立仓库 `../GhostVision`。
-- 当前仓库接收标准化外部视觉结果，可编排 GhostVision CLI，但不内置 OpenCV、本地采集或模型推理流程。
+- 当前仓库接收标准化外部视觉结果，可编排 GhostVision CLI；视觉标定、识别和模型推理由 `../GhostVision` 维护。
+- Web 摄像头预览另依赖 OpenCV。
 - 默认开发入口为 `python -m src.cli ...`；安装命令入口后可使用 `ghostchessboard ...`。
+
+## Web 控制台
+
+Web 控制台用于现场对弈、硬件调试、日志查看和摄像头预览。NUC 上启动：
+
+```bash
+GHOSTCHESSBOARD_WEB_PASSWORD=your-password .web-venv/bin/python -m src.cli web --host 0.0.0.0 --port 8080
+```
+
+安装、停止、环境变量和现场约定见 [`docs/web.md`](docs/web.md)；访问网络见 [`docs/network.md`](docs/network.md)。
 
 ## 团队
 
