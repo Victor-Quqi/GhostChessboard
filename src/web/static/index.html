@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GhostChessboard Console</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <div class="login-layer" id="loginLayer">
+      <form class="login-panel" id="loginForm">
+        <div>
+          <p class="eyebrow">GhostChessboard</p>
+          <h1>现场控制台</h1>
+        </div>
+        <label class="field">
+          <span>共享密码</span>
+          <input id="passwordInput" type="password" autocomplete="current-password" />
+        </label>
+        <button class="primary wide" type="submit">进入</button>
+        <p class="login-error" id="loginError"></p>
+      </form>
+    </div>
+
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">GhostChessboard</p>
+          <h1>对弈与调试控制台</h1>
+        </div>
+        <div class="status-strip">
+          <div class="status-cell">
+            <span>回合</span>
+            <strong id="turnLabel">-</strong>
+          </div>
+          <div class="status-cell">
+            <span>席位</span>
+            <strong id="seatLabel">-</strong>
+          </div>
+          <div class="status-cell">
+            <span>在线</span>
+            <strong id="seatsLabel">-</strong>
+          </div>
+          <div class="status-cell status-cell-hardware">
+            <span>硬件</span>
+            <strong id="busyLabel" class="hardware-status">-</strong>
+          </div>
+          <div class="status-cell">
+            <span>小车</span>
+            <strong id="carriageLabel">-</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="console-grid">
+        <section class="panel board-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Board</p>
+              <h2>棋盘</h2>
+            </div>
+            <div class="inline-actions">
+              <select id="seatSelect" title="阵营">
+                <option value="red">红方</option>
+                <option value="black">黑方</option>
+              </select>
+              <button id="switchSeatButton" type="button">切换</button>
+              <label class="toggle-field" title="显示或隐藏棋盘格点坐标">
+                <input id="coordToggle" type="checkbox" />
+                <span>坐标</span>
+              </label>
+              <button id="resetGameButton" type="button">重设棋局</button>
+            </div>
+          </div>
+          <div class="warning-line" id="warningLine"></div>
+          <div class="board-wrap">
+            <div class="board-grid" id="boardGrid"></div>
+          </div>
+          <div class="move-readout" id="moveReadout">未选择棋子</div>
+        </section>
+
+        <div class="middle-stack">
+          <section class="panel vision-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Vision</p>
+                <h2>实时画面</h2>
+              </div>
+              <div class="inline-actions">
+                <button id="syncButton" type="button">同步视觉</button>
+                <button id="forceSyncButton" type="button">强制重建</button>
+              </div>
+            </div>
+            <div class="video-frame">
+              <img id="videoImage" alt="camera stream" />
+            </div>
+            <div class="vision-meta">
+              <span id="visionLabel">等待同步</span>
+              <button id="aiButton" class="primary" type="button">AI 下棋</button>
+            </div>
+          </section>
+
+          <section class="panel log-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Events</p>
+                <h2>日志</h2>
+              </div>
+              <button id="logoutButton" type="button">退出</button>
+            </div>
+            <div class="log-list" id="logList"></div>
+          </section>
+        </div>
+
+        <section class="panel ops-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Motion</p>
+              <h2>硬件操作</h2>
+            </div>
+            <button id="statusButton" type="button">读取 GRBL</button>
+          </div>
+
+          <div class="control-block">
+            <label class="field compact">
+              <span>点动步长 mm</span>
+              <input id="jogStepInput" type="number" min="0.1" step="0.1" value="5" />
+            </label>
+            <div class="jog-pad">
+              <button class="jog-y-plus" data-jog="y+" type="button">Y+</button>
+              <button class="jog-x-minus" data-jog="x-" type="button">X-</button>
+              <button class="jog-x-plus" data-jog="x+" type="button">X+</button>
+              <button class="jog-y-minus" data-jog="y-" type="button">Y-</button>
+            </div>
+          </div>
+
+          <div class="control-block">
+            <div class="control-title">空载移动一格</div>
+            <div class="jog-pad">
+              <button class="jog-y-plus" data-cell-jog="y+" type="button">Y+ 一格</button>
+              <button class="jog-x-minus" data-cell-jog="x-" type="button">X- 一格</button>
+              <button class="jog-x-plus" data-cell-jog="x+" type="button">X+ 一格</button>
+              <button class="jog-y-minus" data-cell-jog="y-" type="button">Y- 一格</button>
+            </div>
+          </div>
+
+          <div class="control-block two">
+            <button id="magnetOnButton" type="button">磁铁开</button>
+            <button id="magnetOffButton" type="button">磁铁关</button>
+          </div>
+
+          <div class="control-block">
+            <div class="control-title">小车格点</div>
+            <div class="carriage-inputs">
+              <label class="field compact">
+                <span>X</span>
+                <input id="carriageX" type="number" min="0" max="9" value="0" />
+              </label>
+              <label class="field compact">
+                <span>Y</span>
+                <input id="carriageY" type="number" min="0" max="10" value="0" />
+              </label>
+            </div>
+            <div class="carriage-actions">
+              <button id="moveCarriageButton" class="primary" type="button">移动小车至 X,Y</button>
+              <button id="setCarriageButton" type="button">只记录当前位置为 X,Y</button>
+              <button id="resetCarriageButton" type="button">只记录当前位置为 0,0</button>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

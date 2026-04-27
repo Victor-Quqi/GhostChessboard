@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import re
+import signal
+import subprocess
+import time
 from typing import TYPE_CHECKING, Iterable
 
 from src.config import AppConfig, load_config
@@ -272,12 +277,27 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser = subparsers.add_parser("show-config", help="Print resolved config.")
     config_parser.add_argument("--json", action="store_true", help="Print as JSON.")
 
+    web_parser = subparsers.add_parser("web", help="Run the GhostChessboard Web console.")
+    web_parser.add_argument("--host", help="Listen host. Default comes from config.web.host.")
+    web_parser.add_argument("--port", type=int, help="Listen port. Default comes from config.web.port.")
+
+    web_stop_parser = subparsers.add_parser("web-stop", help="Stop a background GhostChessboard Web console.")
+    web_stop_parser.add_argument("--port", type=int, help="Listening port. Default comes from config.web.port.")
+    web_stop_parser.add_argument("--timeout-s", type=float, default=5.0, help="Seconds to wait after SIGTERM.")
+    web_stop_parser.add_argument("--force", action="store_true", help="Send SIGKILL if the process ignores SIGTERM.")
+    web_stop_parser.add_argument(
+        "--allow-any-listener",
+        action="store_true",
+        help="Stop any process listening on the port, even if its command line does not look like this Web console.",
+    )
+    web_stop_parser.add_argument("--dry-run", action="store_true", help="Print matching processes without stopping them.")
+
     return parser
 
 
 def load_runtime_config(args: argparse.Namespace) -> AppConfig:
     config = load_config(args.config)
-    if args.port:
+    if getattr(args, "command", None) not in {"web", "web-stop"} and args.port:
         config.serial.port = args.port
     if hasattr(args, "move_feed") and args.move_feed is not None:
         config.motion.move_feed_mm_min = args.move_feed
@@ -521,6 +541,179 @@ def build_confirmation_trigger(args: argparse.Namespace, controller: "GrblContro
     raise ValueError(f"Unsupported confirmation trigger: {args.trigger}")
 
 
+def stop_web_app(
+    *,
+    port: int,
+    timeout_s: float = 5.0,
+    force: bool = False,
+    allow_any_listener: bool = False,
+    dry_run: bool = False,
+) -> None:
+    pids = _list_listening_pids(port)
+    if not pids:
+        print(f"No process is listening on TCP port {port}.")
+        return
+
+    candidates: list[tuple[int, str]] = []
+    skipped: list[tuple[int, str]] = []
+    for pid in sorted(pids):
+        command = _process_command(pid)
+        if allow_any_listener or _looks_like_web_process(command):
+            candidates.append((pid, command))
+        else:
+            skipped.append((pid, command))
+
+    for pid, command in skipped:
+        print(f"Skipping PID {pid}: {command or '(command unavailable)'}")
+
+    if not candidates:
+        print(f"No GhostChessboard Web process found on TCP port {port}.")
+        print("Use --allow-any-listener if you intentionally want to stop the listener on that port.")
+        raise SystemExit(2)
+
+    for pid, command in candidates:
+        label = command or "(command unavailable)"
+        if dry_run:
+            print(f"Would stop PID {pid}: {label}")
+            continue
+
+        print(f"Stopping PID {pid}: {label}")
+        os.kill(pid, signal.SIGTERM)
+        if _wait_for_process_exit(pid, timeout_s=timeout_s):
+            print(f"Stopped PID {pid}.")
+            continue
+
+        if force:
+            os.kill(pid, signal.SIGKILL)
+            if _wait_for_process_exit(pid, timeout_s=timeout_s):
+                print(f"Killed PID {pid}.")
+                continue
+
+        print(f"PID {pid} is still running.")
+        raise SystemExit(1)
+
+
+def _list_listening_pids(port: int) -> set[int]:
+    pids: set[int] = set()
+    pids.update(_listening_pids_from_ss(port))
+    pids.update(_listening_pids_from_lsof(port))
+    if os.name == "nt":
+        pids.update(_listening_pids_from_netstat(port))
+    return pids
+
+
+def _listening_pids_from_ss(port: int) -> set[int]:
+    result = _run_probe(["ss", "-ltnp"])
+    if result is None:
+        return set()
+
+    pids: set[int] = set()
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) < 4 or fields[0] != "LISTEN":
+            continue
+        local_address = fields[3]
+        if not _address_matches_port(local_address, port):
+            continue
+        pids.update(int(pid) for pid in re.findall(r"pid=(\d+)", line))
+    return pids
+
+
+def _listening_pids_from_lsof(port: int) -> set[int]:
+    result = _run_probe(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fp"])
+    if result is None:
+        return set()
+    pids: set[int] = set()
+    for line in result.stdout.splitlines():
+        if line.startswith("p") and line[1:].isdigit():
+            pids.add(int(line[1:]))
+    return pids
+
+
+def _listening_pids_from_netstat(port: int) -> set[int]:
+    result = _run_probe(["netstat", "-ano", "-p", "TCP"])
+    if result is None:
+        return set()
+    pids: set[int] = set()
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) < 5 or fields[-2] != "LISTENING":
+            continue
+        if _address_matches_port(fields[1], port) and fields[-1].isdigit():
+            pids.add(int(fields[-1]))
+    return pids
+
+
+def _address_matches_port(address: str, port: int) -> bool:
+    _, separator, raw_port = address.rpartition(":")
+    return bool(separator) and raw_port == str(port)
+
+
+def _process_command(pid: int) -> str:
+    if os.name == "nt":
+        result = _run_probe(["wmic", "process", "where", f"ProcessId={pid}", "get", "CommandLine", "/value"])
+        if result is None:
+            return ""
+        prefix = "CommandLine="
+        for line in result.stdout.splitlines():
+            if line.startswith(prefix):
+                return line[len(prefix):].strip()
+        return ""
+
+    result = _run_probe(["ps", "-p", str(pid), "-o", "command="])
+    return result.stdout.strip() if result is not None else ""
+
+
+def _looks_like_web_process(command: str) -> bool:
+    normalized = command.replace("\\", "/")
+    lower = normalized.lower()
+    tokens = [token.strip("\"'").lower() for token in normalized.split()]
+    command_names = {token.rsplit("/", 1)[-1].removesuffix(".exe") for token in tokens}
+    has_web_arg = "web" in tokens
+    return (
+        ("src.cli" in lower and has_web_arg)
+        or ("ghostchessboard" in command_names and has_web_arg)
+        or ("ghostchessboard" in lower and "uvicorn" in lower)
+        or ("ghostchessboard" in lower and "src.web.server" in lower)
+    )
+
+
+def _wait_for_process_exit(pid: int, *, timeout_s: float) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not _process_is_alive(pid):
+            return True
+        time.sleep(0.1)
+    return not _process_is_alive(pid)
+
+
+def _process_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _run_probe(command: list[str]) -> subprocess.CompletedProcess[str] | None:
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (FileNotFoundError, PermissionError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result
+
+
 def run(args: argparse.Namespace) -> None:
     config = load_runtime_config(args)
 
@@ -556,6 +749,22 @@ def run(args: argparse.Namespace) -> None:
             print(json.dumps(payload, indent=2, ensure_ascii=False))
         else:
             print(payload)
+        return
+
+    if args.command == "web":
+        from src.web.server import run_web_app
+
+        run_web_app(config, host=args.host, port=args.port)
+        return
+
+    if args.command == "web-stop":
+        stop_web_app(
+            port=args.port or config.web.port,
+            timeout_s=args.timeout_s,
+            force=args.force,
+            allow_any_listener=args.allow_any_listener,
+            dry_run=args.dry_run,
+        )
         return
 
     if args.command == "bestmove":

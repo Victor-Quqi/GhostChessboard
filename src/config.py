@@ -103,6 +103,26 @@ class VisionConfig:
 
 
 @dataclass(slots=True)
+class WebConfig:
+    password: str | None = None
+    host: str = "0.0.0.0"
+    port: int = 8080
+    log_limit: int = 500
+    session_timeout_s: float = 7200.0
+    default_ai_depth: int = 12
+    ai_timeout_s: float = 15.0
+    ai_engine_path: str | None = None
+    state_path: str | None = None
+    max_users: int = 2
+    video_device: str = "/dev/video0"
+    video_width: int = 1280
+    video_height: int = 720
+    video_fps: int = 15
+    video_jpeg_quality: int = 80
+    reset_carriage_cell: list[int] = field(default_factory=lambda: [0, 0])
+
+
+@dataclass(slots=True)
 class AppConfig:
     serial: SerialConfig = field(default_factory=SerialConfig)
     grbl: GrblConfig = field(default_factory=GrblConfig)
@@ -110,6 +130,7 @@ class AppConfig:
     physics: PhysicsConfig = field(default_factory=PhysicsConfig)
     planning: PlanningConfig = field(default_factory=PlanningConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -1,0 +1,8 @@
+[Unit]
+Description=Prefer GhostChessboard phone hotspot when visible
+Wants=NetworkManager.service
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ghost-prefer-phone-hotspot.sh
