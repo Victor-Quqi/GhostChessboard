@@ -3,9 +3,12 @@ const state = {
   selected: null,
   ws: null,
   showCoords: false,
+  videoRotationDeg: 90,
 };
 
 const MAX_RENDERED_LOGS = 200;
+const COORD_LONG_PRESS_MS = 450;
+const COORD_CLICK_SUPPRESS_MS = 800;
 
 const pieceText = {
   r_jiang: "帅",
@@ -230,6 +233,7 @@ function render(payload) {
     return;
   }
   state.payload = payload;
+  renderVideoRotation();
   const current = payload.state;
   const user = current.user;
   $("turnLabel").textContent = sideText[current.side_to_move] || "-";
@@ -257,7 +261,7 @@ function render(payload) {
 
   const disabled = current.hardware.busy;
   document.querySelectorAll("button").forEach((button) => {
-    if (button.id !== "logoutButton" && button.id !== "switchSeatButton") {
+    if (!["logoutButton", "switchSeatButton", "videoRotateButton"].includes(button.id)) {
       button.disabled = disabled;
     }
   });
@@ -299,6 +303,11 @@ function renderBoard() {
         cell.appendChild(coord);
       }
 
+      const coordHint = document.createElement("span");
+      coordHint.className = "coord-popover";
+      coordHint.textContent = key;
+      cell.appendChild(coordHint);
+
       const piece = pieceAt(state.payload, x, y);
       if (piece) {
         const pieceNode = document.createElement("span");
@@ -306,7 +315,14 @@ function renderBoard() {
         pieceNode.textContent = pieceText[piece] || "?";
         cell.appendChild(pieceNode);
       }
-      cell.addEventListener("click", () => handleCellClick(x, y));
+      setupCellCoordinateHint(cell);
+      cell.addEventListener("click", () => {
+        if (cell.dataset.suppressClick === "true") {
+          cell.dataset.suppressClick = "";
+          return;
+        }
+        handleCellClick(x, y);
+      });
       grid.appendChild(cell);
     }
   }
@@ -317,6 +333,67 @@ function renderBoard() {
   } else {
     readout.textContent = "未选择棋子";
   }
+}
+
+function renderVideoRotation() {
+  const frame = $("videoFrame");
+  frame.classList.remove("video-rotate-0", "video-rotate-90", "video-rotate-180", "video-rotate-270");
+  frame.classList.add(`video-rotate-${state.videoRotationDeg}`);
+  $("videoRotateButton").textContent = `旋转 ${state.videoRotationDeg}°`;
+  $("videoRotateButton").title = `当前画面旋转 ${state.videoRotationDeg}°；点击后顺时针再转 90°`;
+}
+
+function setupCellCoordinateHint(cell) {
+  let longPressTimer = null;
+  let suppressClickClearTimer = null;
+
+  const clearLongPressTimer = () => {
+    if (longPressTimer !== null) {
+      window.clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  };
+
+  const clearSuppressClickClearTimer = () => {
+    if (suppressClickClearTimer !== null) {
+      window.clearTimeout(suppressClickClearTimer);
+      suppressClickClearTimer = null;
+    }
+  };
+
+  const scheduleSuppressClickClear = () => {
+    clearSuppressClickClearTimer();
+    suppressClickClearTimer = window.setTimeout(() => {
+      suppressClickClearTimer = null;
+      cell.dataset.suppressClick = "";
+    }, COORD_CLICK_SUPPRESS_MS);
+  };
+
+  cell.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") {
+      return;
+    }
+    clearLongPressTimer();
+    clearSuppressClickClearTimer();
+    cell.dataset.suppressClick = "";
+    longPressTimer = window.setTimeout(() => {
+      longPressTimer = null;
+      cell.classList.add("coord-pressed");
+      cell.dataset.suppressClick = "true";
+    }, COORD_LONG_PRESS_MS);
+  });
+
+  for (const eventName of ["pointerup", "pointercancel", "pointerleave"]) {
+    cell.addEventListener(eventName, () => {
+      clearLongPressTimer();
+      if (cell.classList.contains("coord-pressed")) {
+        window.setTimeout(() => cell.classList.remove("coord-pressed"), 700);
+        scheduleSuppressClickClear();
+      }
+    });
+  }
+
+  cell.addEventListener("click", clearSuppressClickClearTimer, { capture: true });
 }
 
 function createBoardLines() {
@@ -521,6 +598,10 @@ function setupEvents() {
     state.showCoords = $("coordToggle").checked;
     renderBoard();
   });
+  $("videoRotateButton").addEventListener("click", () => {
+    state.videoRotationDeg = (state.videoRotationDeg + 90) % 360;
+    renderVideoRotation();
+  });
 
   $("syncButton").addEventListener("click", () => runAndRender("/api/vision/sync", { force: false }));
   $("forceSyncButton").addEventListener("click", () => runAndRender("/api/vision/sync", { force: true }));
@@ -603,4 +684,5 @@ async function runAndRender(path, body) {
 }
 
 setupEvents();
+renderVideoRotation();
 boot();

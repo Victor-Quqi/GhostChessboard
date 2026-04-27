@@ -343,12 +343,41 @@ input {
   background: rgba(72, 174, 194, 0.18);
 }
 
+.cell:hover .coord-popover,
+.cell.coord-pressed .coord-popover {
+  opacity: 1;
+  transform: translate(-50%, -8px);
+}
+
 .coord {
   position: absolute;
   left: 3px;
   top: 2px;
   color: rgba(36, 24, 10, 0.38);
   font-size: 10px;
+}
+
+.coord-popover {
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  z-index: 4;
+  min-width: 38px;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 238, 205, 0.72);
+  border-radius: 4px;
+  background: rgba(27, 20, 9, 0.9);
+  color: #ffeecb;
+  font-family: Consolas, "Cascadia Mono", "Microsoft YaHei UI", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: nowrap;
 }
 
 .piece {
@@ -384,7 +413,7 @@ input {
 .video-frame {
   position: relative;
   overflow: hidden;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 1 / 1;
   border: 1px solid var(--line-soft);
   background:
     linear-gradient(135deg, transparent 48%, rgba(238, 165, 54, 0.18) 49%, transparent 50%),
@@ -393,9 +422,26 @@ input {
 
 .video-frame img {
   display: block;
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+
+.video-frame.video-rotate-90 img {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
+.video-frame.video-rotate-180 img {
+  transform: translate(-50%, -50%) rotate(180deg);
+}
+
+.video-frame.video-rotate-270 img {
+  transform: translate(-50%, -50%) rotate(270deg);
 }
 
 .vision-meta {

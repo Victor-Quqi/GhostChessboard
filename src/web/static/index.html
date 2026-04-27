@@ -87,11 +87,12 @@
                 <h2>实时画面</h2>
               </div>
               <div class="inline-actions">
+                <button id="videoRotateButton" type="button">旋转 90°</button>
                 <button id="syncButton" type="button">同步视觉</button>
                 <button id="forceSyncButton" type="button">强制重建</button>
               </div>
             </div>
-            <div class="video-frame">
+            <div class="video-frame video-rotate-90" id="videoFrame">
               <img id="videoImage" alt="camera stream" />
             </div>
             <div class="vision-meta">
