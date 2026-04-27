@@ -1,13 +1,16 @@
 # 现场网络
 
+本文件只记录可公开的网络部署方式。真实 SSID、IP、公网跳板、用户名和 MCP
+别名应写在本地私有笔记或运维配置中，不要提交到仓库。
+
 ## 现场方案
 
-- 手机开热点：`<PHONE_HOTSPOT_SSID>`。
+- 手机或现场路由器提供专用热点，例如 `<PHONE_HOTSPOT_SSID>`。
 - NUC 和演示电脑都连这个热点。
 - WebUI 监听：`0.0.0.0:8080`，使用方式见 [`web.md`](web.md)。
 - 浏览器访问：`http://<NUC-热点IP>:8080`。
 
-最近一次验证（`2026-04-27`）：
+现场记录模板：
 
 ```text
 NUC WiFi: <PHONE_HOTSPOT_SSID>
@@ -28,7 +31,7 @@ NUC 优先级：
 
 ```text
 <PHONE_HOTSPOT_SSID>  300
-<FALLBACK_WIFI_SSID>       50
+<FALLBACK_WIFI_SSID>   50
 ```
 
 timer：
@@ -65,5 +68,5 @@ ssh -N -L 8080:127.0.0.1:8080 -p 22022 <nuc-user>@127.0.0.1
 ## 注意
 
 - 不用 NUC 自开热点。
-- 不依赖 <PERSONAL_WIFI>。
+- 不依赖非现场专用 WiFi。
 - 同热点设备都可能访问 WebUI，不要随便共享热点密码。

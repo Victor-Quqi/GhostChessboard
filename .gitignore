@@ -43,6 +43,7 @@ nul
 
 .pio
 .cache
+runtime/
 
 # Python cache
 __pycache__/

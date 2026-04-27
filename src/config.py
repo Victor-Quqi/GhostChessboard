@@ -84,11 +84,11 @@ class VisionResultConfig:
 class VisionProbeConfig:
     """Settings for a live GhostVision probe used during scenario runs."""
 
-    ghostvision_bin: str = "/home/ghost/.venvs/ghostvision/bin/ghostvision"
+    ghostvision_bin: str = "ghostvision"
     camera_device: str = "/dev/video0"
-    calibration_path: str = "/home/ghost/GhostVision/calibrations/nuc_primary_1920x1080.json"
-    backend_root: str = "/home/ghost/tmp_ccr/repo"
-    artifacts_dir: str = "/home/ghost/GhostChessboard/runtime/verify"
+    calibration_path: str = "../GhostVision/calibrations/default.json"
+    backend_root: str = "../GhostVision"
+    artifacts_dir: str = "runtime/verify"
     keep_recent_runs: int = 5
     snapshot_timeout_s: float = 20.0
     recognize_timeout_s: float = 45.0

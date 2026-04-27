@@ -3,8 +3,8 @@ set -u
 
 export LC_ALL=C
 
-WIFI_IFACE="${WIFI_IFACE:-<WIFI_IFACE>}"
-PHONE_SSID="${PHONE_SSID:-<PHONE_HOTSPOT_SSID>}"
+WIFI_IFACE="${WIFI_IFACE:-wlan0}"
+PHONE_SSID="${PHONE_SSID:-GhostChessboard-Hotspot}"
 
 log() {
   echo "ghost-prefer-phone-hotspot: $*"
