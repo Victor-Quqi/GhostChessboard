@@ -1,43 +1,45 @@
-# GhostChessboard 幽灵棋盘
+# GhostChessboard
 
-中国象棋自动对弈棋盘 —— **嵌入式**课程项目
+An automated Xiangqi chessboard for human-vs-AI play and demonstrations, built as an **Embedded Systems** course project.
 
-## 项目简介
+[中文版](README.zh-CN.md)
 
-当前默认棋面载体为直接拖动的扁平棋片：以引磁片作载片，上表面贴棋子贴纸，由棋盘下方 XY 平台上的电磁铁拖动，在棋盘表面自动滑动，可用于人机对弈或 AI 演示。
+## Overview
 
-## 文档
+GhostChessboard uses flat Xiangqi pieces that slide directly on the board surface. Each piece is mounted on a magnet-attracting carrier with a piece sticker on top. An electromagnet on an XY gantry under the board drags the pieces automatically, enabling physical human-vs-AI games and automated demos.
 
-- [技术规划](docs/tech.md)
-- [物料清单](docs/bom.md)
-- [项目进度](docs/progress.md)
-- [视觉集成](docs/vision.md)
-- [Web 控制台](docs/web.md)
-- [现场网络](docs/network.md)
-- [GRBL 调试记录](docs/grbl.md)
-- [电磁铁验证记录](docs/magnet.md)
+## Documentation
 
-## 仓库边界
+- [Technical plan](docs/tech.md)
+- [Bill of materials](docs/bom.md)
+- [Project progress](docs/progress.md)
+- [Vision integration](docs/vision.md)
+- [Web console](docs/web.md)
+- [Field network](docs/network.md)
+- [GRBL debug notes](docs/grbl.md)
+- [Electromagnet validation notes](docs/magnet.md)
 
-- 当前仓库负责运动控制、棋盘状态接收与系统集成。
-- 视觉推理链路已从当前仓库解耦，放在同级独立仓库 `../GhostVision`。
-- 当前仓库接收标准化外部视觉结果，可编排 GhostVision CLI；视觉标定、识别和模型推理由 `../GhostVision` 维护。
-- Web 摄像头预览另依赖 OpenCV。
-- 默认开发入口为 `python -m src.cli ...`；安装命令入口后可使用 `ghostchessboard ...`。
+## Repository Scope
 
-## Web 控制台
+- This repository owns motion control, board-state intake, and system integration.
+- The vision inference pipeline is maintained separately in the sibling repository `../GhostVision`.
+- This repository consumes standardized external vision results and can orchestrate the GhostVision CLI. Vision calibration, recognition, and model inference are maintained by `../GhostVision`.
+- The web camera preview additionally depends on OpenCV.
+- The default development entry point is `python -m src.cli ...`. After installing the command entry point, `ghostchessboard ...` can also be used.
 
-Web 控制台用于现场对弈、硬件调试、日志查看和摄像头预览。NUC 上启动：
+## Web Console
+
+The web console is used for on-site games, hardware debugging, log inspection, and camera preview. Start it on the NUC with:
 
 ```bash
 GHOSTCHESSBOARD_WEB_PASSWORD=your-password .web-venv/bin/python -m src.cli web --host 0.0.0.0 --port 8080
 ```
 
-安装、停止、环境变量和现场约定见 [`docs/web.md`](docs/web.md)；访问网络见 [`docs/network.md`](docs/network.md)。
+See [`docs/web.md`](docs/web.md) for installation, shutdown, environment variables, and field conventions. See [`docs/network.md`](docs/network.md) for network access.
 
-## 团队
+## Team
 
-| 成员 | 方向 |
+| Member | Area |
 |---|---|
-| [@Victor-Quqi](https://github.com/Victor-Quqi) | 软件（视觉/AI/运动控制） |
-| [@AmakusaMika](https://github.com/AmakusaMika) | 演示视频与 presentation 准备 |
+| [@Victor-Quqi](https://github.com/Victor-Quqi) | Software: vision, AI, and motion control |
+| [@AmakusaMika](https://github.com/AmakusaMika) | Demo video and presentation preparation |
