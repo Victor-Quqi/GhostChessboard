@@ -8,6 +8,7 @@ Main board:
 Capture area:
 - located on the right side of the main board
 - 10 rows on x (0-9) and 2 extra columns on y (9 and 10)
+- slots fill the outer column first to keep the board-side column clear longer
 - slot indices 0-19
 """
 
@@ -62,7 +63,7 @@ def capture_slot_to_cell(slot_index: int) -> GridPoint:
         raise ValueError(f"Capture slot out of range: slot_index={slot_index} (0-19)")
 
     x_index = slot_index % 10
-    y_index = 9 + (slot_index // 10)
+    y_index = 10 - (slot_index // 10)
     validate_capture_cell((x_index, y_index))
     return (x_index, y_index)
 
