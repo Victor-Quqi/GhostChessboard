@@ -32,6 +32,11 @@ const sideText = {
   black: "黑方",
 };
 
+const sideLogText = {
+  red: "red",
+  black: "black",
+};
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 const X_CELL_PITCH_MM = 370 / 9;
 const Y_CELL_PITCH_MM = 337 / 8;
@@ -589,7 +594,7 @@ function setupEvents() {
     try {
       const payload = await post("/api/seat", { color: $("seatSelect").value });
       await refreshState();
-      appendLocalLog("info", `席位切换为 ${sideText[payload.user.color]}`);
+      appendLocalLog("info", `Seat switched to ${sideLogText[payload.user.color] || payload.user.color}.`);
     } catch (error) {
       appendLocalLog("error", error.message);
     }
