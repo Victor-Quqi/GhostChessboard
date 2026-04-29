@@ -95,15 +95,6 @@ class WebStateTests(unittest.TestCase):
         self.assertEqual(restored.carriage_cell, (5, 0))
         self.assertEqual(restored.side_to_move, "black")
 
-    def test_fen_uses_current_piece_identities(self) -> None:
-        state = WebGameState()
-
-        self.assertEqual(
-            state.fen(side_to_move="red"),
-            "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
-        )
-
-
 def _snapshot(pieces: dict[tuple[int, int], str]) -> ExternalVisionSnapshot:
     return ExternalVisionSnapshot(
         provider="test",

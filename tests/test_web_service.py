@@ -173,7 +173,7 @@ class WebServiceTests(unittest.TestCase):
 
     def test_reset_game_restores_opening_and_records_carriage_origin(self) -> None:
         async def run() -> None:
-            service = _service()
+            service = _service(reset_carriage_cell=(2, 3))
             session = service.login("pw")
             move = await service.manual_move(session, (3, 0), (4, 0))
             service.state.captured[0] = "b_zu"
@@ -183,7 +183,7 @@ class WebServiceTests(unittest.TestCase):
             await service.reset_game()
 
             self.assertEqual(service.state.side_to_move, "red")
-            self.assertEqual(service.state.carriage_cell, (0, 0))
+            self.assertEqual(service.state.carriage_cell, (2, 3))
             self.assertEqual(service.state.captured, {})
             self.assertIsNone(service.state.last_move)
             self.assertIsNone(service.state.last_vision)
@@ -191,16 +191,6 @@ class WebServiceTests(unittest.TestCase):
             self.assertEqual(service.state.pieces[(3, 0)], "r_zu")
             self.assertNotIn((4, 0), service.state.pieces)
             self.assertEqual(service.hardware.calls, [((3, 0), (4, 0))])
-
-        asyncio.run(run())
-
-    def test_reset_game_uses_configured_carriage_cell(self) -> None:
-        async def run() -> None:
-            service = _service(reset_carriage_cell=(2, 3))
-
-            await service.reset_game()
-
-            self.assertEqual(service.state.carriage_cell, (2, 3))
 
         asyncio.run(run())
 

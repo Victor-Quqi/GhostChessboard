@@ -157,21 +157,11 @@ class GhostVisionCliProbeTests(unittest.TestCase):
 
         run_dirs = _run_dirs(self.tmp_dir)
         self.assertEqual(len(run_dirs), 1)
+        self.assertEqual(len(list(run_dirs[0].iterdir())), 6)
         result_files = sorted(run_dirs[0].glob("*_result.json"))
         self.assertEqual(len(result_files), 2)
         prefixes = [path.name.rsplit("_", 1)[0] for path in result_files]
         self.assertNotEqual(prefixes[0], prefixes[1])
-
-    def test_capture_reuses_same_run_directory(self) -> None:
-        runner = FakeRunner()
-        probe = GhostVisionCliProbe(self._config(), run_process=runner)
-
-        probe.capture()
-        probe.capture()
-
-        run_dirs = _run_dirs(self.tmp_dir)
-        self.assertEqual(len(run_dirs), 1)
-        self.assertEqual(len(list(run_dirs[0].iterdir())), 6)
 
     def test_capture_prunes_old_run_directories(self) -> None:
         for index in range(6):
