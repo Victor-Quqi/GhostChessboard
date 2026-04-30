@@ -24,6 +24,10 @@ def load_runtime_config(args: argparse.Namespace) -> AppConfig:
         config.motion.move_feed_mm_min = args.move_feed
     if hasattr(args, "return_feed") and args.return_feed is not None:
         config.motion.return_feed_mm_min = args.return_feed
+    if hasattr(args, "return_feed_x") and args.return_feed_x is not None:
+        config.motion.return_feed_x_mm_min = args.return_feed_x
+    if hasattr(args, "return_feed_y") and args.return_feed_y is not None:
+        config.motion.return_feed_y_mm_min = args.return_feed_y
     return config
 
 

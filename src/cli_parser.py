@@ -6,6 +6,13 @@ import argparse
 from pathlib import Path
 
 
+def _add_motion_feed_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
+    parser.add_argument("--return-feed", type=float, help="Override both empty return feeds in mm/min for this run.")
+    parser.add_argument("--return-feed-x", type=float, help="Override X-axis empty return feed in mm/min for this run.")
+    parser.add_argument("--return-feed-y", type=float, help="Override Y-axis empty return feed in mm/min for this run.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ghostchessboard")
     parser.add_argument("--config", type=Path, help="Path to JSON config override.")
@@ -75,8 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ignore capture-area slot differences during post-turn vision verification.",
     )
     turn_parser.add_argument("--print-path", action="store_true", help="Print the resolved physical path.")
-    turn_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    turn_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
+    _add_motion_feed_args(turn_parser)
     turn_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
     turn_parser.add_argument("--json", action="store_true", help="Emit the turn summary as JSON.")
 
@@ -126,8 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ignore capture-area slot differences during post-move vision verification.",
     )
     demo_parser.add_argument("--print-path", action="store_true", help="Print resolved physical paths.")
-    demo_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    demo_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
+    _add_motion_feed_args(demo_parser)
     demo_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
     demo_parser.add_argument("--button-axis", default="Y", help="GRBL limit pin used by the click trigger.")
     demo_parser.add_argument(
@@ -192,8 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the resolved physical path before execution.",
     )
-    move_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    move_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
+    _add_motion_feed_args(move_parser)
     move_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
 
     capture_parser = subparsers.add_parser("capture", help="Move the victim to capture area, then move attacker in.")
@@ -235,14 +239,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print both resolved physical paths before execution.",
     )
-    capture_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    capture_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
+    _add_motion_feed_args(capture_parser)
     capture_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
 
     scenario_parser = subparsers.add_parser("scenario", help="Run a scenario JSON file inside one GRBL session.")
     scenario_parser.add_argument("path", type=Path, help="Path to the scenario JSON file.")
-    scenario_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    scenario_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
+    _add_motion_feed_args(scenario_parser)
     scenario_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
     scenario_parser.add_argument(
         "--verify-vision",

@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.cli import run
+from src.cli import load_runtime_config, run
 from src.cli_parser import build_parser
 
 
@@ -109,6 +109,30 @@ class WebStopCliTests(unittest.TestCase):
         self.assertEqual(stop_mock.call_args.kwargs["port"], 8090)
         self.assertTrue(stop_mock.call_args.kwargs["force"])
         self.assertTrue(stop_mock.call_args.kwargs["allow_any_listener"])
+
+
+class FeedOverrideCliTests(unittest.TestCase):
+    def test_return_feed_overrides_both_axes_before_axis_specific_override(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "turn",
+                "--vision-result",
+                "sample.json",
+                "--carriage",
+                "0,0",
+                "--return-feed",
+                "7000",
+                "--return-feed-y",
+                "9000",
+            ]
+        )
+
+        config = load_runtime_config(args)
+
+        self.assertEqual(config.motion.return_feed_x_mm_min, 7000.0)
+        self.assertEqual(config.motion.return_feed_y_mm_min, 9000.0)
+
 
 def _write_temp_json(payload: dict) -> Path:
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:

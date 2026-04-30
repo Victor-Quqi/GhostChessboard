@@ -26,9 +26,28 @@ class MotionConfig:
     release_pwm_end: int | None = None
     release_pwm_segments: int = 1
     move_feed_mm_min: float = 4800.0
-    return_feed_mm_min: float = 7200.0
+    return_feed_x_mm_min: float = 7200.0
+    return_feed_y_mm_min: float = 2400.0
     engage_delay_s: float = 0.0
     settle_delay_s: float = 0.10
+
+    @property
+    def return_feed_mm_min(self) -> float:
+        return min(self.return_feed_x_mm_min, self.return_feed_y_mm_min)
+
+    @return_feed_mm_min.setter
+    def return_feed_mm_min(self, value: float) -> None:
+        self.return_feed_x_mm_min = value
+        self.return_feed_y_mm_min = value
+
+    def empty_return_feed_for_delta(self, dx_mm: float, dy_mm: float) -> float:
+        has_x = abs(dx_mm) > 1e-9
+        has_y = abs(dy_mm) > 1e-9
+        if has_x and not has_y:
+            return self.return_feed_x_mm_min
+        if has_y and not has_x:
+            return self.return_feed_y_mm_min
+        return min(self.return_feed_x_mm_min, self.return_feed_y_mm_min)
 
 
 @dataclass(slots=True)

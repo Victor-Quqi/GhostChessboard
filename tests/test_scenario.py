@@ -155,7 +155,8 @@ class ScenarioRunTests(unittest.TestCase):
         self.assertNotIn((3, 0), board.state.occupied_cells)
         self.assertTrue(all(result.visual_status == "skipped" for result in summary.results))
         self.assertGreaterEqual(len(executor.drag_calls), 2)
-        self.assertEqual(executor.jog_calls[0][2], executor.config.motion.return_feed_mm_min)
+        dx_mm, dy_mm, feed_mm_min = executor.jog_calls[0]
+        self.assertEqual(feed_mm_min, executor.config.motion.empty_return_feed_for_delta(dx_mm, dy_mm))
 
     def test_halt_on_execution_error(self) -> None:
         scenario = self._standard_scenario(

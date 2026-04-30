@@ -170,10 +170,12 @@ class MotionExecutor:
                 self._safe_magnet_off()
 
         if release_offset:
+            dx_mm = -(sign_x * release_offset)
+            dy_mm = -(sign_y * release_offset)
             self.jog(
-                -(sign_x * release_offset),
-                -(sign_y * release_offset),
-                feed_mm_min=self._config.motion.return_feed_mm_min,
+                dx_mm,
+                dy_mm,
+                feed_mm_min=self._config.motion.empty_return_feed_for_delta(dx_mm, dy_mm),
             )
 
     def drag_route(self, segments: Iterable[Segment], *, include_release_offset: bool = True) -> None:
@@ -247,5 +249,5 @@ class MotionExecutor:
         dy_mm = target[1] - current[1]
         if abs(dx_mm) <= 1e-9 and abs(dy_mm) <= 1e-9:
             return target
-        self.jog(dx_mm, dy_mm, feed_mm_min=self._config.motion.return_feed_mm_min)
+        self.jog(dx_mm, dy_mm, feed_mm_min=self._config.motion.empty_return_feed_for_delta(dx_mm, dy_mm))
         return target

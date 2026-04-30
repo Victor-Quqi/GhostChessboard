@@ -75,6 +75,22 @@ class MotionExecutorSafetyTests(unittest.TestCase):
 
         self.assertEqual(controller.calls[-1], ("magnet_off", True))
 
+    def test_empty_return_uses_axis_specific_feed(self) -> None:
+        config = self._config()
+        config.motion.return_feed_x_mm_min = 6000.0
+        config.motion.return_feed_y_mm_min = 9000.0
+        controller = FakeController()
+        executor = MotionExecutor(controller, config)
+
+        executor._move_empty_to((10.0, 10.0), (20.0, 10.0))
+        executor._move_empty_to((20.0, 10.0), (20.0, 30.0))
+        executor._move_empty_to((20.0, 30.0), (10.0, 10.0))
+
+        jog_calls = [call for call in controller.calls if call[0] == "jog_relative"]
+        self.assertEqual(jog_calls[0][1][2], 6000.0)
+        self.assertEqual(jog_calls[1][1][2], 9000.0)
+        self.assertEqual(jog_calls[2][1][2], 6000.0)
+
 
 if __name__ == "__main__":
     unittest.main()

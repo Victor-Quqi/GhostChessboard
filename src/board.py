@@ -154,10 +154,12 @@ class BoardController:
 
         current_x_mm, current_y_mm = grid_point_to_xy(self._executor.config, current)
         target_x_mm, target_y_mm = grid_point_to_xy(self._executor.config, target)
+        dx_mm = target_x_mm - current_x_mm
+        dy_mm = target_y_mm - current_y_mm
         self._executor.jog(
-            target_x_mm - current_x_mm,
-            target_y_mm - current_y_mm,
-            feed_mm_min=self._executor.config.motion.return_feed_mm_min,
+            dx_mm,
+            dy_mm,
+            feed_mm_min=self._executor.config.motion.empty_return_feed_for_delta(dx_mm, dy_mm),
         )
         self._state.carriage_cell = target
         return current
