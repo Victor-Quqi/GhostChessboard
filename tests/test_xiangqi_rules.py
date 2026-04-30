@@ -6,8 +6,10 @@ import unittest
 
 from src.xiangqi_rules import (
     XiangqiRuleError,
+    has_legal_move,
     pieces_to_xiangqi_fen,
     standard_starting_pieces,
+    terminal_status,
     validate_legal_move,
 )
 
@@ -98,6 +100,16 @@ class XiangqiRulesTests(unittest.TestCase):
             "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
         )
 
+    def test_checkmate_position_has_no_legal_move_and_reports_winner(self) -> None:
+        pieces = _black_checkmate_position()
+
+        self.assertFalse(has_legal_move(pieces, "black"))
+        status = terminal_status(pieces, "black")
+
+        self.assertTrue(status.game_over)
+        self.assertEqual(status.reason, "checkmate")
+        self.assertEqual(status.winner, "red")
+
     def _base(self, items: dict[str, tuple[int, int]]) -> dict[tuple[int, int], str]:
         pieces = {
             (0, 4): "r_jiang",
@@ -120,6 +132,18 @@ class XiangqiRulesTests(unittest.TestCase):
             validate_legal_move(pieces, start, end, side_to_move=side_to_move)
         if message is not None:
             self.assertIn(message, str(context.exception))
+
+
+def _black_checkmate_position() -> dict[tuple[int, int], str]:
+    return {
+        (0, 4): "r_jiang",
+        (9, 4): "b_jiang",
+        (8, 4): "r_ju",
+        (9, 3): "r_ju",
+        (9, 5): "r_ju",
+        (8, 3): "r_ju",
+        (8, 5): "r_ju",
+    }
 
 
 if __name__ == "__main__":

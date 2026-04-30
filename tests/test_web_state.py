@@ -95,6 +95,22 @@ class WebStateTests(unittest.TestCase):
         self.assertEqual(restored.carriage_cell, (5, 0))
         self.assertEqual(restored.side_to_move, "black")
 
+    def test_export_includes_terminal_status_for_checkmate(self) -> None:
+        state = WebGameState()
+        state.pieces = _black_checkmate_position()
+        state.side_to_move = "black"
+        state.refresh_terminal_status()
+
+        exported = state.export_state()
+        payload = state.to_dict()
+
+        self.assertTrue(exported["game_over"])
+        self.assertEqual(exported["winner"], "red")
+        self.assertEqual(exported["reason"], "checkmate")
+        self.assertTrue(payload["game_over"])
+        self.assertEqual(payload["winner"], "red")
+
+
 def _snapshot(pieces: dict[tuple[int, int], str]) -> ExternalVisionSnapshot:
     return ExternalVisionSnapshot(
         provider="test",
@@ -103,6 +119,18 @@ def _snapshot(pieces: dict[tuple[int, int], str]) -> ExternalVisionSnapshot:
             for cell, piece in sorted(pieces.items())
         ],
     )
+
+
+def _black_checkmate_position() -> dict[tuple[int, int], str]:
+    return {
+        (0, 4): "r_jiang",
+        (9, 4): "b_jiang",
+        (8, 4): "r_ju",
+        (9, 3): "r_ju",
+        (9, 5): "r_ju",
+        (8, 3): "r_ju",
+        (8, 5): "r_ju",
+    }
 
 
 if __name__ == "__main__":

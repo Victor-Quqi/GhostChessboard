@@ -1,10 +1,13 @@
 """FastAPI application for the GhostChessboard Web console."""
 
 import asyncio
+import ipaddress
 import json
 import os
 from pathlib import Path
 import shutil
+import socket
+import subprocess
 from typing import Callable
 
 from src.board_state import BoardCell
@@ -14,7 +17,7 @@ from src.web.auth import AuthError, SeatFullError, SessionManager, WebSession
 from src.web.log_buffer import LogBuffer
 from src.web.runtime import HardwareRuntime
 from src.web.state import WebGameState, capture_slot_from_execution
-from src.xiangqi_rules import XiangqiRuleError
+from src.xiangqi_rules import XiangqiRuleError, opposite_side
 
 STATIC_DIR = Path(__file__).with_name("static")
 COOKIE_NAME = "ghost_session"
@@ -142,6 +145,7 @@ class WebConsoleService:
             return result
 
     async def manual_move(self, session: WebSession, start: BoardCell, end: BoardCell) -> dict[str, object]:
+        self._assert_game_active()
         self._assert_turn_permission(session)
         try:
             self.state.validate_move(start, end, side_to_move=self.state.side_to_move)
@@ -173,6 +177,7 @@ class WebConsoleService:
         return move
 
     async def ai_move(self, session: WebSession, *, depth: int | None, timeout_s: float | None) -> dict[str, object]:
+        self._assert_game_active()
         self._assert_turn_permission(session)
         fen = self.state.fen()
         side = self.state.side_to_move
@@ -182,15 +187,27 @@ class WebConsoleService:
         await self.emit_state()
 
         def _execute() -> tuple[str, BoardCell, BoardCell, object, object]:
-            from src.engine import get_best_move
+            from src.engine import EngineError, get_best_move
             from src.turn import uci_to_cells
 
-            best_move = get_best_move(
-                fen,
-                engine_path=self._ai_engine_path,
-                depth=resolved_depth,
-                timeout_s=resolved_timeout,
-            )
+            try:
+                best_move = get_best_move(
+                    fen,
+                    engine_path=self._ai_engine_path,
+                    depth=resolved_depth,
+                    timeout_s=resolved_timeout,
+                )
+            except EngineError as exc:
+                terminal_message = _terminal_engine_error_message(exc, side)
+                if terminal_message is not None:
+                    winner, message = terminal_message
+                    self.state.force_terminal_status(
+                        winner=winner,
+                        reason="checkmate",
+                        message=message,
+                    )
+                    raise XiangqiRuleError(message) from exc
+                raise
             start, end = uci_to_cells(best_move)
             self.state.validate_move(start, end, side_to_move=side)
             execution, final_state = self.hardware.execute_board_move(
@@ -316,6 +333,11 @@ class WebConsoleService:
     def _assert_turn_permission(self, session: WebSession) -> None:
         if session.color != self.state.side_to_move:
             raise AuthError("It is the other player's turn.")
+
+    def _assert_game_active(self) -> None:
+        terminal = self.state.refresh_terminal_status()
+        if terminal["game_over"]:
+            raise XiangqiRuleError(str(terminal["message"]))
 
 
 def create_app(config: AppConfig):
@@ -586,10 +608,13 @@ def run_web_app(config: AppConfig, *, host: str | None = None, port: int | None 
     except ImportError as exc:
         raise RuntimeError("Uvicorn is required for the Web console.") from exc
 
+    resolved_host = host or config.web.host
+    resolved_port = port or config.web.port
+    _print_web_access_urls(resolved_host, resolved_port)
     uvicorn.run(
         create_app(config),
-        host=host or config.web.host,
-        port=port or config.web.port,
+        host=resolved_host,
+        port=resolved_port,
     )
 
 
@@ -606,3 +631,90 @@ def _optional_path(raw: str | None) -> Path | None:
     if not raw:
         return None
     return Path(raw)
+
+
+def _terminal_engine_error_message(exc: Exception, side_to_move: str) -> tuple[str, str] | None:
+    text = str(exc).lower()
+    if "king can be captured" not in text:
+        return None
+    loser = side_to_move
+    winner = opposite_side(side_to_move)
+    return winner, f"{loser} is checkmated; {winner} wins."
+
+
+def _print_web_access_urls(host: str, port: int) -> None:
+    print(f"GhostChessboard WebUI listening on {host}:{port}", flush=True)
+    urls = _web_access_urls(host, port)
+    if not urls:
+        return
+    print("Open from this network:", flush=True)
+    for url in urls:
+        print(f"  {url}", flush=True)
+
+
+def _web_access_urls(host: str, port: int) -> list[str]:
+    if host in {"0.0.0.0", "::", ""}:
+        addresses = _local_ipv4_addresses()
+        if not addresses:
+            addresses = ["127.0.0.1"]
+        return [f"http://{address}:{port}" for address in addresses]
+    return [f"http://{host}:{port}"]
+
+
+def _local_ipv4_addresses() -> list[str]:
+    candidates: set[str] = set()
+    candidates.update(_hostname_ipv4_addresses())
+    candidates.update(_udp_probe_ipv4_addresses())
+    candidates.update(_hostname_command_ipv4_addresses())
+    return sorted(candidates, key=lambda item: tuple(int(part) for part in item.split(".")))
+
+
+def _hostname_ipv4_addresses() -> set[str]:
+    try:
+        records = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+    except OSError:
+        return set()
+    return {_clean_ipv4(record[4][0]) for record in records if _clean_ipv4(record[4][0])}
+
+
+def _udp_probe_ipv4_addresses() -> set[str]:
+    addresses: set[str] = set()
+    for target in ("8.8.8.8", "1.1.1.1"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.connect((target, 80))
+                address = _clean_ipv4(sock.getsockname()[0])
+                if address:
+                    addresses.add(address)
+        except OSError:
+            continue
+    return addresses
+
+
+def _hostname_command_ipv4_addresses() -> set[str]:
+    try:
+        result = subprocess.run(
+            ["hostname", "-I"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=1.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    addresses: set[str] = set()
+    for token in result.stdout.split():
+        address = _clean_ipv4(token)
+        if address:
+            addresses.add(address)
+    return addresses
+
+
+def _clean_ipv4(raw: str) -> str | None:
+    try:
+        address = ipaddress.ip_address(raw)
+    except ValueError:
+        return None
+    if address.version != 4 or address.is_loopback or address.is_link_local or address.is_unspecified:
+        return None
+    return str(address)

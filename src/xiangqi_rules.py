@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from src.board_state import BoardCell
 from src.coords import validate_main_board_cell
@@ -66,6 +67,14 @@ SIDE_ALIASES = {
 
 class XiangqiRuleError(ValueError):
     """Raised when a move violates Xiangqi rules."""
+
+
+@dataclass(frozen=True, slots=True)
+class XiangqiTerminalStatus:
+    game_over: bool
+    winner: str | None
+    reason: str | None
+    message: str
 
 
 def normalize_side(side: str) -> str:
@@ -143,6 +152,53 @@ def validate_legal_move(
         raise XiangqiRuleError("Generals may not face each other.")
     if is_in_check(after, moving_side):
         raise XiangqiRuleError(f"Move leaves {moving_side} in check.")
+
+
+def has_legal_move(pieces: PieceMap, side: str) -> bool:
+    """Return whether ``side`` has at least one legal move."""
+
+    normalized_side = normalize_side(side)
+    board = dict(pieces)
+    for start, piece in board.items():
+        if piece_side(piece) != normalized_side:
+            continue
+        for x_index in range(10):
+            for y_index in range(9):
+                try:
+                    validate_legal_move(board, start, (x_index, y_index), side_to_move=normalized_side)
+                except XiangqiRuleError:
+                    continue
+                return True
+    return False
+
+
+def terminal_status(pieces: PieceMap, side_to_move: str) -> XiangqiTerminalStatus:
+    """Return terminal state for the side to move."""
+
+    normalized_side = normalize_side(side_to_move)
+    if has_legal_move(pieces, normalized_side):
+        return XiangqiTerminalStatus(
+            game_over=False,
+            winner=None,
+            reason=None,
+            message=f"{normalized_side} to move.",
+        )
+
+    if is_in_check(pieces, normalized_side):
+        winner = opposite_side(normalized_side)
+        return XiangqiTerminalStatus(
+            game_over=True,
+            winner=winner,
+            reason="checkmate",
+            message=f"{normalized_side} is checkmated; {winner} wins.",
+        )
+
+    return XiangqiTerminalStatus(
+        game_over=True,
+        winner=None,
+        reason="stalemate",
+        message=f"{normalized_side} has no legal move; game is drawn.",
+    )
 
 
 def apply_move_to_pieces(pieces: PieceMap, start: BoardCell, end: BoardCell) -> dict[BoardCell, str]:

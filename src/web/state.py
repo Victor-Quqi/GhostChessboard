@@ -19,6 +19,7 @@ from src.xiangqi_rules import (
     opposite_side,
     pieces_to_xiangqi_fen,
     standard_starting_pieces,
+    terminal_status,
     validate_legal_move,
 )
 
@@ -60,7 +61,12 @@ class WebGameState:
         self.last_move: dict[str, object] | None = None
         self.last_vision: dict[str, object] | None = None
         self.sync_warning: str | None = None
+        self.game_over = False
+        self.winner: str | None = None
+        self.reason: str | None = None
+        self.message = "red to move."
         self.updated_at = time.time()
+        self._refresh_terminal_status_locked()
 
     def to_dict(self, *, user: dict[str, object] | None = None, seats: list[dict[str, object]] | None = None) -> dict[str, object]:
         with self._lock:
@@ -85,6 +91,10 @@ class WebGameState:
                 "last_move": self.last_move,
                 "last_vision": self.last_vision,
                 "sync_warning": self.sync_warning,
+                "game_over": self.game_over,
+                "winner": self.winner,
+                "reason": self.reason,
+                "message": self.message,
                 "updated_at": self.updated_at,
                 "user": user,
                 "seats": seats or [],
@@ -135,6 +145,10 @@ class WebGameState:
                 "last_move": self.last_move,
                 "last_vision": self.last_vision,
                 "sync_warning": self.sync_warning,
+                "game_over": self.game_over,
+                "winner": self.winner,
+                "reason": self.reason,
+                "message": self.message,
                 "updated_at": self.updated_at,
             }
 
@@ -168,6 +182,7 @@ class WebGameState:
             self.last_move = _optional_dict(raw.get("last_move"))
             self.last_vision = _optional_dict(raw.get("last_vision"))
             self.sync_warning = raw.get("sync_warning") if isinstance(raw.get("sync_warning"), str) else None
+            self._refresh_terminal_status_locked()
             self.updated_at = float(raw.get("updated_at", time.time()))
 
     def reset_game(self, *, carriage_cell: GridPoint = (0, 0)) -> None:
@@ -181,10 +196,12 @@ class WebGameState:
             self.last_move = None
             self.last_vision = None
             self.sync_warning = None
+            self._refresh_terminal_status_locked()
             self.updated_at = time.time()
 
     def validate_move(self, start: BoardCell, end: BoardCell, *, side_to_move: str | None = None) -> None:
         with self._lock:
+            self._raise_if_game_over_locked()
             validate_legal_move(self.pieces, start, end, side_to_move=side_to_move or self.side_to_move)
 
     def move_kind(self, end: BoardCell) -> str:
@@ -229,6 +246,7 @@ class WebGameState:
                 "best_move": best_move,
                 "created_at": time.time(),
             }
+            self._refresh_terminal_status_locked()
             self.updated_at = time.time()
             return self.last_move
 
@@ -277,8 +295,53 @@ class WebGameState:
             else:
                 self.sync_warning = None
 
+            self._refresh_terminal_status_locked()
             self.updated_at = time.time()
             return result
+
+    def refresh_terminal_status(self) -> dict[str, object]:
+        with self._lock:
+            self._refresh_terminal_status_locked()
+            self.updated_at = time.time()
+            return self.terminal_state()
+
+    def force_terminal_status(
+        self,
+        *,
+        winner: str | None,
+        reason: str,
+        message: str,
+    ) -> dict[str, object]:
+        if winner is not None:
+            winner = normalize_side(winner)
+        with self._lock:
+            self.game_over = True
+            self.winner = winner
+            self.reason = reason
+            self.message = message
+            self.sync_warning = None
+            self.updated_at = time.time()
+            return self.terminal_state()
+
+    def terminal_state(self) -> dict[str, object]:
+        with self._lock:
+            return {
+                "game_over": self.game_over,
+                "winner": self.winner,
+                "reason": self.reason,
+                "message": self.message,
+            }
+
+    def _refresh_terminal_status_locked(self) -> None:
+        status = terminal_status(self.pieces, self.side_to_move)
+        self.game_over = status.game_over
+        self.winner = status.winner
+        self.reason = status.reason
+        self.message = status.message
+
+    def _raise_if_game_over_locked(self) -> None:
+        if self.game_over:
+            raise XiangqiRuleError(self.message)
 
 
 def infer_physical_move(

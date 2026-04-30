@@ -154,6 +154,15 @@ input {
   line-height: 1.25;
 }
 
+.status-cell.terminal {
+  border-color: var(--amber);
+  background: #262015;
+}
+
+.status-cell.terminal strong {
+  color: #ffd99a;
+}
+
 .status-cell-hardware strong {
   min-height: 36px;
 }
@@ -520,7 +529,8 @@ input {
 
 .log-list {
   height: 340px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--line-soft);
   background: #171613;
   padding: 8px;
@@ -534,6 +544,17 @@ input {
   padding: 5px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 13px;
+  min-width: 0;
+}
+
+.log-entry span {
+  min-width: 0;
+}
+
+.log-entry span:last-child {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .log-entry .time {

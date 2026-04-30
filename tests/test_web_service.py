@@ -8,9 +8,10 @@ from unittest.mock import patch
 
 from src.board_state import BoardState
 from src.config import AppConfig
+from src.engine import EngineError
 from src.vision.contracts import ExternalVisionPiece, ExternalVisionSnapshot
 from src.web.auth import AuthError
-from src.web.server import WebConsoleService
+from src.web.server import WebConsoleService, _clean_ipv4, _web_access_urls
 from src.xiangqi_rules import XiangqiRuleError
 
 
@@ -46,6 +47,21 @@ class RecordingBroadcast:
 
 
 class WebServiceTests(unittest.TestCase):
+    def test_web_access_urls_uses_discovered_addresses_for_wildcard_host(self) -> None:
+        with patch("src.web.server._local_ipv4_addresses", return_value=["10.0.0.5", "192.168.1.8"]):
+            self.assertEqual(
+                _web_access_urls("0.0.0.0", 8080),
+                ["http://10.0.0.5:8080", "http://192.168.1.8:8080"],
+            )
+
+    def test_web_access_urls_keeps_explicit_host(self) -> None:
+        self.assertEqual(_web_access_urls("127.0.0.1", 8080), ["http://127.0.0.1:8080"])
+
+    def test_clean_ipv4_filters_loopback_and_bad_tokens(self) -> None:
+        self.assertEqual(_clean_ipv4("192.168.1.23"), "192.168.1.23")
+        self.assertIsNone(_clean_ipv4("127.0.0.1"))
+        self.assertIsNone(_clean_ipv4("not-an-ip"))
+
     def test_illegal_manual_move_does_not_call_hardware(self) -> None:
         async def run() -> None:
             service = _service()
@@ -138,6 +154,62 @@ class WebServiceTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_terminal_game_rejects_manual_move_without_hardware(self) -> None:
+        async def run() -> None:
+            service = _service()
+            session = service.login("pw")
+            service.state.pieces = _black_checkmate_position()
+            service.state.side_to_move = "black"
+            service.auth.switch_color(session.token, "black")
+
+            with self.assertRaisesRegex(XiangqiRuleError, "checkmated"):
+                await service.manual_move(session, (9, 4), (8, 4))
+
+            self.assertEqual(service.hardware.calls, [])
+            self.assertTrue(service.state.game_over)
+            self.assertEqual(service.state.winner, "red")
+
+        asyncio.run(run())
+
+    def test_terminal_game_rejects_ai_move_without_hardware(self) -> None:
+        async def run() -> None:
+            service = _service()
+            session = service.login("pw")
+            service.state.pieces = _black_checkmate_position()
+            service.state.side_to_move = "black"
+            service.auth.switch_color(session.token, "black")
+
+            with self.assertRaisesRegex(XiangqiRuleError, "checkmated"):
+                await service.ai_move(session, depth=2, timeout_s=1.0)
+
+            self.assertEqual(service.hardware.calls, [])
+            self.assertTrue(service.state.game_over)
+            self.assertEqual(service.state.winner, "red")
+
+        asyncio.run(run())
+
+    def test_ai_engine_terminal_error_marks_game_over_without_raw_engine_failure(self) -> None:
+        async def run() -> None:
+            service = _service()
+            session = service.login("pw")
+
+            with (
+                patch(
+                    "src.engine.get_best_move",
+                    side_effect=EngineError("Unsupported position. King can be captured."),
+                ),
+                self.assertRaisesRegex(XiangqiRuleError, "checkmated"),
+            ):
+                await service.ai_move(session, depth=2, timeout_s=1.0)
+
+            self.assertEqual(service.hardware.calls, [])
+            self.assertTrue(service.state.game_over)
+            self.assertEqual(service.state.winner, "black")
+            self.assertEqual(service.state.reason, "checkmate")
+            self.assertNotIn("Unsupported position", service.state.message)
+
+        asyncio.run(run())
+
     def test_vision_sync_applies_snapshot_before_idle_state_and_video_restart(self) -> None:
         async def run() -> None:
             service = _service()
@@ -213,6 +285,18 @@ def _snapshot(pieces: dict[tuple[int, int], str]) -> ExternalVisionSnapshot:
             for cell, piece in sorted(pieces.items())
         ],
     )
+
+
+def _black_checkmate_position() -> dict[tuple[int, int], str]:
+    return {
+        (0, 4): "r_jiang",
+        (9, 4): "b_jiang",
+        (8, 4): "r_ju",
+        (9, 3): "r_ju",
+        (9, 5): "r_ju",
+        (8, 3): "r_ju",
+        (8, 5): "r_ju",
+    }
 
 
 def _first_idle_state_after_busy(messages: list[dict[str, object]]) -> dict[str, object]:

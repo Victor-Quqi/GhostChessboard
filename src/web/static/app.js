@@ -77,6 +77,9 @@ function pieceAt(payload, x, y) {
 function canOperate() {
   const current = state.payload?.state;
   const user = current?.user;
+  if (current?.game_over) {
+    return false;
+  }
   if (!current || !user || current.hardware.busy) {
     return false;
   }
@@ -89,6 +92,9 @@ function canOperate() {
 function canActForTurn() {
   const current = state.payload?.state;
   const user = current?.user;
+  if (current?.game_over) {
+    return false;
+  }
   if (!current || !user || current.hardware.busy) {
     return false;
   }
@@ -156,6 +162,9 @@ function formatHardwareStatus(rawStatus) {
 }
 
 function riverTurnText(current, user) {
+  if (current.game_over) {
+    return terminalDisplayText(current);
+  }
   const side = sideText[current.side_to_move] || current.side_to_move;
   if (!user) {
     return `当前回合：${side}`;
@@ -167,6 +176,33 @@ function riverTurnText(current, user) {
     return `${side}回合 · 等待席位`;
   }
   return `当前回合：${side}`;
+}
+
+function terminalDisplayText(current) {
+  if (!current?.game_over) {
+    return "";
+  }
+  if (current.winner) {
+    return `${sideText[current.winner] || current.winner}获胜`;
+  }
+  if (current.reason === "stalemate") {
+    return "无合法步 · 和棋";
+  }
+  return "对局结束";
+}
+
+function terminalDetailText(current) {
+  if (!current?.game_over) {
+    return "";
+  }
+  if (current.reason === "checkmate" && current.winner) {
+    const loser = current.winner === "red" ? "黑方" : "红方";
+    return `${loser}被将死，${sideText[current.winner] || current.winner}获胜。`;
+  }
+  if (current.reason === "stalemate") {
+    return "当前方无合法步且未被将军，判为和棋。";
+  }
+  return current.message || "对局已结束。";
 }
 
 function cellJogTarget(direction) {
@@ -241,7 +277,12 @@ function render(payload) {
   renderVideoRotation();
   const current = payload.state;
   const user = current.user;
-  $("turnLabel").textContent = sideText[current.side_to_move] || "-";
+  const turnCell = $("turnLabel").closest(".status-cell");
+  turnCell.classList.toggle("terminal", Boolean(current.game_over));
+  $("turnLabel").textContent = current.game_over
+    ? terminalDisplayText(current)
+    : sideText[current.side_to_move] || "-";
+  $("turnLabel").title = current.game_over ? terminalDetailText(current) : "";
   $("seatLabel").textContent = user ? `${sideText[user.color]} ${user.id}` : "-";
   $("seatsLabel").textContent = seatsText(current.seats);
   const hardwareText = current.hardware.busy ? "忙" : formatHardwareStatus(current.hardware.status);
@@ -249,15 +290,21 @@ function render(payload) {
   $("busyLabel").title = current.hardware.status || hardwareText;
   $("busyLabel").style.color = current.hardware.busy ? "var(--amber)" : "var(--green)";
   $("carriageLabel").textContent = current.carriage_cell ? current.carriage_cell.join(",") : "未知";
-  $("warningLine").textContent = current.sync_warning || "";
+  $("warningLine").textContent = current.game_over
+    ? terminalDetailText(current)
+    : current.sync_warning || "";
   $("visionLabel").textContent = current.last_vision?.frame_id
     ? `frame ${current.last_vision.frame_id}`
     : "等待同步";
   const aiReady = current.ai?.engine_available !== false;
-  $("aiButton").textContent = aiReady
+  $("aiButton").textContent = current.game_over
+    ? "对局已结束"
+    : aiReady
     ? `AI 为${sideText[current.side_to_move] || current.side_to_move}走子`
     : "AI 未配置";
-  $("aiButton").title = aiReady
+  $("aiButton").title = current.game_over
+    ? terminalDetailText(current)
+    : aiReady
     ? `让 AI 为当前回合的${sideText[current.side_to_move] || current.side_to_move}计算并执行一步`
     : "Pikafish 未配置：设置 GHOSTCHESSBOARD_PIKAFISH 或 web.ai_engine_path";
   syncCarriageInputs(current.carriage_cell);
@@ -270,7 +317,7 @@ function render(payload) {
       button.disabled = disabled;
     }
   });
-  $("aiButton").disabled = disabled || !aiReady || !canActForTurn();
+  $("aiButton").disabled = disabled || current.game_over || !aiReady || !canActForTurn();
   $("switchSeatButton").disabled = disabled || !user?.can_switch_color;
 
   renderBoard();
@@ -335,6 +382,8 @@ function renderBoard() {
   if (state.selected) {
     const piece = pieceAt(state.payload, state.selected[0], state.selected[1]);
     readout.textContent = `已选择 ${pieceText[piece] || piece} @ ${state.selected.join(",")}`;
+  } else if (current?.game_over) {
+    readout.textContent = terminalDetailText(current);
   } else {
     readout.textContent = "未选择棋子";
   }
@@ -680,7 +729,16 @@ async function runAndRender(path, body) {
     const payload = await post(path, body);
     render(payload);
   } catch (error) {
-    appendLocalLog("error", error.message);
+    const message = error.message;
+    $("warningLine").textContent = message;
+    try {
+      await refreshState();
+      if (!state.payload?.state?.game_over) {
+        $("warningLine").textContent = message;
+      }
+    } catch {
+      // Keep the inline error visible if the state endpoint is unavailable.
+    }
   } finally {
     if (path === "/api/vision/sync") {
       restartVideo();
