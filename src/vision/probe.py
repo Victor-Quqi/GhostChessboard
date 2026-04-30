@@ -1,14 +1,16 @@
 """Live GhostVision CLI probe for scenario visual verification.
 
-Runs the two-step GhostVision flow (snapshot + recognize) as subprocesses
-and returns the recognized ``BoardState``. Probe failures are surfaced as
-visual verification errors; scenario runs stop when verification is requested.
+Runs GhostVision's capture-result command as a subprocess and returns the
+recognized ``BoardState``. Probe failures are surfaced as visual verification
+errors; scenario runs stop when verification is requested.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,7 +31,7 @@ RunProcess = Callable[..., subprocess.CompletedProcess]
 
 @dataclass(slots=True)
 class GhostVisionCliProbe:
-    """Invoke GhostVision's snapshot + recognize CLI per probe.
+    """Invoke GhostVision's capture-result CLI per probe.
 
     Each scenario run writes under one timestamped directory inside
     ``artifacts_dir``. Each capture in that run writes three files:
@@ -57,8 +59,7 @@ class GhostVisionCliProbe:
         crop_path = run_dir / f"{prefix}_crop.jpg"
         result_path = run_dir / f"{prefix}_result.json"
 
-        self._run_snapshot(raw_path, crop_path)
-        self._run_recognize(crop_path, result_path)
+        self._run_capture_result(raw_path, crop_path, result_path)
 
         return load_external_vision_snapshot(result_path)
 
@@ -113,39 +114,44 @@ class GhostVisionCliProbe:
             )
         )
 
-    def _run_snapshot(self, raw_path: Path, crop_path: Path) -> None:
+    def _run_capture_result(self, raw_path: Path, crop_path: Path, result_path: Path) -> None:
         cmd = [
-            self.config.ghostvision_bin,
-            "calib",
-            "snapshot",
+            self._ghostvision_command(),
+            "capture-result",
             "--device",
             self.config.camera_device,
             "--calibration",
             self.config.calibration_path,
             "--raw-output",
             str(raw_path),
-            "--output",
+            "--image-output",
             str(crop_path),
-            "--crop",
-        ]
-        self._run("snapshot", cmd, timeout=self.config.snapshot_timeout_s)
-
-    def _run_recognize(self, image_path: Path, result_path: Path) -> None:
-        cmd = [
-            self.config.ghostvision_bin,
-            "recognize-image",
-            "chinese-chess-recognition",
-            str(image_path),
-            "--backend-root",
-            self.config.backend_root,
             "--output",
             str(result_path),
+            "--crop",
         ]
-        if self.config.flip_x:
-            cmd.append("--flip-x")
-        if self.config.flip_y:
-            cmd.append("--flip-y")
-        self._run("recognize", cmd, timeout=self.config.recognize_timeout_s)
+        self._run("capture-result", cmd, timeout=self.config.snapshot_timeout_s + self.config.recognize_timeout_s)
+
+    def _ghostvision_command(self) -> str:
+        configured = self.config.ghostvision_bin
+        if _looks_like_path(configured):
+            return configured
+
+        resolved = shutil.which(configured)
+        if resolved is not None:
+            return resolved
+
+        candidate = Path(sys.executable).parent / configured
+        if candidate.exists():
+            return str(candidate)
+
+        if os.name == "nt" and candidate.suffix == "":
+            for suffix in (".exe", ".cmd", ".bat"):
+                suffixed = candidate.with_name(f"{candidate.name}{suffix}")
+                if suffixed.exists():
+                    return str(suffixed)
+
+        return configured
 
     def _run(self, label: str, cmd: list[str], *, timeout: float) -> None:
         try:
@@ -166,3 +172,7 @@ class GhostVisionCliProbe:
             stdout = (completed.stdout or "").strip()
             detail = stderr or stdout or f"exit code {completed.returncode}"
             raise VisionProbeError(f"{label} stage failed: {detail}")
+
+
+def _looks_like_path(value: str) -> bool:
+    return os.path.isabs(value) or os.sep in value or (os.altsep is not None and os.altsep in value)

@@ -105,14 +105,11 @@ class VisionProbeConfig:
 
     ghostvision_bin: str = "ghostvision"
     camera_device: str = "/dev/video0"
-    calibration_path: str = "../GhostVision/calibrations/default.json"
-    backend_root: str = "../GhostVision"
+    calibration_path: str = "../GhostVision/calibrations/nuc_primary_1920x1080.json"
     artifacts_dir: str = "runtime/verify"
     keep_recent_runs: int = 5
     snapshot_timeout_s: float = 20.0
     recognize_timeout_s: float = 45.0
-    flip_x: bool = False
-    flip_y: bool = False
 
 
 @dataclass(slots=True)

@@ -7,6 +7,7 @@ import subprocess
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from src.config import VisionProbeConfig
 from src.vision.probe import GhostVisionCliProbe, VisionProbeError
@@ -47,10 +48,9 @@ class FakeRunner:
         if self.fail_stage == stage:
             return subprocess.CompletedProcess(cmd, returncode=2, stdout="", stderr=f"{stage} boom")
 
-        if stage == "snapshot":
+        if stage == "capture-result":
             _touch(_arg_after(cmd, "--raw-output"))
-            _touch(_arg_after(cmd, "--output"))
-        elif stage == "recognize":
+            _touch(_arg_after(cmd, "--image-output"))
             _write(_arg_after(cmd, "--output"), self.result_json)
         return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
 
@@ -65,11 +65,14 @@ class GhostVisionCliProbeTests(unittest.TestCase):
         self.addCleanup(_rm_tree, self.tmp_dir)
 
     def _config(self, **overrides) -> VisionProbeConfig:
+        values = {
+            "artifacts_dir": self.tmp_dir,
+            "ghostvision_bin": "/fake/ghostvision",
+            **overrides,
+        }
         return replace(
             VisionProbeConfig(),
-            artifacts_dir=self.tmp_dir,
-            ghostvision_bin="/fake/ghostvision",
-            **overrides,
+            **values,
         )
 
     def test_capture_returns_board_state_from_recognized_json(self) -> None:
@@ -80,9 +83,14 @@ class GhostVisionCliProbeTests(unittest.TestCase):
 
         self.assertEqual(state.occupied_cells, {(0, 0), (9, 8)})
         self.assertEqual(state.filled_capture_slots, {2})
-        self.assertEqual(len(runner.calls), 2)
-        self.assertEqual(runner.calls[0][1:3], ["calib", "snapshot"])
-        self.assertEqual(runner.calls[1][1:3], ["recognize-image", "chinese-chess-recognition"])
+        self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(runner.calls[0][1], "capture-result")
+
+    def test_default_calibration_path_matches_current_ghostvision_file(self) -> None:
+        self.assertEqual(
+            VisionProbeConfig().calibration_path,
+            "../GhostVision/calibrations/nuc_primary_1920x1080.json",
+        )
 
     def test_capture_snapshot_returns_recognized_snapshot(self) -> None:
         runner = FakeRunner()
@@ -93,15 +101,25 @@ class GhostVisionCliProbeTests(unittest.TestCase):
         self.assertEqual(snapshot.provider, "chinese_chess_recognition")
         self.assertEqual(snapshot.board_pieces[0].cell, (0, 0))
 
-    def test_capture_appends_flip_flags_when_enabled(self) -> None:
+    def test_default_binary_resolves_next_to_current_python(self) -> None:
+        bin_dir = Path(self.tmp_dir) / "bin"
+        bin_dir.mkdir()
+        python_path = bin_dir / "python"
+        ghostvision_path = bin_dir / "ghostvision"
+        python_path.write_text("", encoding="utf-8")
+        ghostvision_path.write_text("", encoding="utf-8")
+
         runner = FakeRunner()
-        probe = GhostVisionCliProbe(self._config(flip_x=True, flip_y=True), run_process=runner)
+        probe = GhostVisionCliProbe(
+            self._config(ghostvision_bin="ghostvision"),
+            run_process=runner,
+        )
 
-        probe.capture()
+        with patch("src.vision.probe.shutil.which", return_value=None):
+            with patch("src.vision.probe.sys.executable", str(python_path)):
+                probe.capture()
 
-        recognize_cmd = runner.calls[1]
-        self.assertIn("--flip-x", recognize_cmd)
-        self.assertIn("--flip-y", recognize_cmd)
+        self.assertEqual(runner.calls[0][0], str(ghostvision_path))
 
     def test_capture_writes_artifacts_into_configured_dir(self) -> None:
         runner = FakeRunner()
@@ -116,20 +134,12 @@ class GhostVisionCliProbeTests(unittest.TestCase):
         suffixes = sorted(path.name.split("_")[-1] for path in artifacts)
         self.assertEqual(suffixes, ["crop.jpg", "raw.jpg", "result.json"])
 
-    def test_snapshot_failure_raises_vision_probe_error(self) -> None:
+    def test_capture_result_failure_raises_vision_probe_error(self) -> None:
         runner = FakeRunner()
-        runner.fail_stage = "snapshot"
+        runner.fail_stage = "capture-result"
         probe = GhostVisionCliProbe(self._config(), run_process=runner)
 
-        with self.assertRaisesRegex(VisionProbeError, "snapshot stage failed"):
-            probe.capture()
-
-    def test_recognize_failure_raises_vision_probe_error(self) -> None:
-        runner = FakeRunner()
-        runner.fail_stage = "recognize"
-        probe = GhostVisionCliProbe(self._config(), run_process=runner)
-
-        with self.assertRaisesRegex(VisionProbeError, "recognize stage failed"):
+        with self.assertRaisesRegex(VisionProbeError, "capture-result stage failed"):
             probe.capture()
 
     def test_missing_binary_raises_vision_probe_error(self) -> None:
@@ -194,10 +204,8 @@ class GhostVisionCliProbeTests(unittest.TestCase):
 
 
 def _detect_stage(cmd: list[str]) -> str:
-    if "snapshot" in cmd:
-        return "snapshot"
-    if "recognize-image" in cmd:
-        return "recognize"
+    if "capture-result" in cmd:
+        return "capture-result"
     return "unknown"
 
 
