@@ -608,14 +608,20 @@ def run_web_app(config: AppConfig, *, host: str | None = None, port: int | None 
     except ImportError as exc:
         raise RuntimeError("Uvicorn is required for the Web console.") from exc
 
+    from src.web_process import remove_web_pid_file, write_web_pid_file
+
     resolved_host = host or config.web.host
     resolved_port = port or config.web.port
     _print_web_access_urls(resolved_host, resolved_port)
-    uvicorn.run(
-        create_app(config),
-        host=resolved_host,
-        port=resolved_port,
-    )
+    write_web_pid_file(resolved_port)
+    try:
+        uvicorn.run(
+            create_app(config),
+            host=resolved_host,
+            port=resolved_port,
+        )
+    finally:
+        remove_web_pid_file(resolved_port)
 
 
 def _reset_carriage_cell(config: AppConfig) -> GridPoint:

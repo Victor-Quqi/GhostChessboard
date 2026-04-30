@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from src.board_state import BoardCell
 from src.coords import validate_main_board_cell
 
 PieceMap = Mapping[BoardCell, str]
+MoveValidator = Callable[[PieceMap, BoardCell, BoardCell, str], bool]
 
 KNOWN_PIECES = frozenset(
     {
@@ -44,6 +45,24 @@ PIECE_TO_FEN = {
     "r_ju": "R",
     "r_pao": "C",
     "r_zu": "P",
+}
+
+HORSE_LEG_OFFSETS = {
+    (2, 1): (1, 0),
+    (2, -1): (1, 0),
+    (-2, 1): (-1, 0),
+    (-2, -1): (-1, 0),
+    (1, 2): (0, 1),
+    (-1, 2): (0, 1),
+    (1, -2): (0, -1),
+    (-1, -2): (0, -1),
+}
+
+ELEPHANT_EYE_OFFSETS = {
+    (2, 2): (1, 1),
+    (2, -2): (1, -1),
+    (-2, 2): (-1, 1),
+    (-2, -2): (-1, -1),
 }
 
 SIDE_TO_FEN = {
@@ -307,24 +326,8 @@ def standard_starting_pieces() -> dict[BoardCell, str]:
 
 
 def _piece_can_move(pieces: PieceMap, start: BoardCell, end: BoardCell, piece: str) -> bool:
-    kind = piece_kind(piece)
-    if kind == "ju":
-        return _moves_straight(start, end) and _count_between(pieces, start, end) == 0
-    if kind == "ma":
-        return _horse_can_move(pieces, start, end)
-    if kind == "xiang":
-        return _elephant_can_move(pieces, start, end, piece_side(piece))
-    if kind == "shi":
-        return _advisor_can_move(start, end, piece_side(piece))
-    if kind == "jiang":
-        return _general_can_move(start, end, piece_side(piece))
-    if kind == "pao":
-        target_occupied = end in pieces
-        screen_count = _count_between(pieces, start, end)
-        return _moves_straight(start, end) and screen_count == (1 if target_occupied else 0)
-    if kind == "zu":
-        return _soldier_can_move(start, end, piece_side(piece))
-    return False
+    validator = PIECE_MOVE_VALIDATORS.get(piece_kind(piece))
+    return validator is not None and validator(pieces, start, end, piece)
 
 
 def _piece_attacks(pieces: PieceMap, start: BoardCell, target: BoardCell, piece: str) -> bool:
@@ -334,24 +337,64 @@ def _piece_attacks(pieces: PieceMap, start: BoardCell, target: BoardCell, piece:
     return _piece_can_move(pieces, start, target, piece)
 
 
+def _rook_can_move(pieces: PieceMap, start: BoardCell, end: BoardCell, piece: str) -> bool:
+    return _moves_straight(start, end) and _count_between(pieces, start, end) == 0
+
+
+def _horse_rule(pieces: PieceMap, start: BoardCell, end: BoardCell, piece: str) -> bool:
+    return _horse_can_move(pieces, start, end)
+
+
+def _elephant_rule(pieces: PieceMap, start: BoardCell, end: BoardCell, piece: str) -> bool:
+    return _elephant_can_move(pieces, start, end, piece_side(piece))
+
+
+def _advisor_rule(pieces: PieceMap, start: BoardCell, end: BoardCell, piece: str) -> bool:
+    return _advisor_can_move(start, end, piece_side(piece))
+
+
+def _general_rule(pieces: PieceMap, start: BoardCell, end: BoardCell, piece: str) -> bool:
+    return _general_can_move(start, end, piece_side(piece))
+
+
+def _cannon_can_move(pieces: PieceMap, start: BoardCell, end: BoardCell, piece: str) -> bool:
+    target_occupied = end in pieces
+    screen_count = _count_between(pieces, start, end)
+    return _moves_straight(start, end) and screen_count == (1 if target_occupied else 0)
+
+
+def _soldier_rule(pieces: PieceMap, start: BoardCell, end: BoardCell, piece: str) -> bool:
+    return _soldier_can_move(start, end, piece_side(piece))
+
+
+PIECE_MOVE_VALIDATORS: dict[str, MoveValidator] = {
+    "ju": _rook_can_move,
+    "ma": _horse_rule,
+    "xiang": _elephant_rule,
+    "shi": _advisor_rule,
+    "jiang": _general_rule,
+    "pao": _cannon_can_move,
+    "zu": _soldier_rule,
+}
+
+
 def _horse_can_move(pieces: PieceMap, start: BoardCell, end: BoardCell) -> bool:
     dx = end[0] - start[0]
     dy = end[1] - start[1]
-    if (abs(dx), abs(dy)) not in {(2, 1), (1, 2)}:
+    leg_offset = HORSE_LEG_OFFSETS.get((dx, dy))
+    if leg_offset is None:
         return False
-    if abs(dx) == 2:
-        leg = (start[0] + _sign(dx), start[1])
-    else:
-        leg = (start[0], start[1] + _sign(dy))
+    leg = (start[0] + leg_offset[0], start[1] + leg_offset[1])
     return leg not in pieces
 
 
 def _elephant_can_move(pieces: PieceMap, start: BoardCell, end: BoardCell, side: str) -> bool:
     dx = end[0] - start[0]
     dy = end[1] - start[1]
-    if abs(dx) != 2 or abs(dy) != 2:
+    eye_offset = ELEPHANT_EYE_OFFSETS.get((dx, dy))
+    if eye_offset is None:
         return False
-    eye = (start[0] + _sign(dx), start[1] + _sign(dy))
+    eye = (start[0] + eye_offset[0], start[1] + eye_offset[1])
     if eye in pieces:
         return False
     if side == "red":

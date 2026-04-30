@@ -11,7 +11,7 @@ python3 -m venv --system-site-packages .web-venv
 .web-venv/bin/python -m pip install -r requirements-web.txt
 ```
 
-`requirements-web.txt` 包含 FastAPI/Uvicorn 和摄像头预览所需的 OpenCV。
+`requirements-web.txt` 包含 FastAPI/Uvicorn、摄像头预览所需的 OpenCV，以及 `web-stop` 进程管理所需的 psutil。
 
 ## 启动与停止
 
@@ -32,6 +32,8 @@ GHOSTCHESSBOARD_WEB_PASSWORD=your-password .web-venv/bin/python -m src.cli web -
 ```bash
 .web-venv/bin/python -m src.cli web-stop --port 8080 --dry-run
 ```
+
+`web-stop` 会优先读取 `.ghostchessboard-web-<port>.pid`，找不到有效 PID 时再按端口监听进程回退查找。
 
 ## 配置入口
 

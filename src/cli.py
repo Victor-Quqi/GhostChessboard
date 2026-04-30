@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
-import re
-import signal
-import subprocess
-import time
 from typing import TYPE_CHECKING, Iterable
 
+from src import cli_parser, cli_serialization, web_process
 from src.config import AppConfig, load_config
 
 if TYPE_CHECKING:
@@ -22,277 +18,6 @@ if TYPE_CHECKING:
     from src.motion.contracts import Segment
     from src.motion.executor import MotionExecutor
     from src.motion.planner import BoardCell, MovePlanningError
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ghostchessboard")
-    parser.add_argument("--config", type=Path, help="Path to JSON config override.")
-    parser.add_argument("--port", help="Override serial port from config.")
-
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    vision_parser = subparsers.add_parser("vision-result", help="Load one external vision result JSON.")
-    vision_parser.add_argument("input", nargs="?", type=Path, help="Path to external vision result JSON.")
-    vision_parser.add_argument("--carriage", metavar="X,Y", help="Optional empty-carriage grid point.")
-    vision_parser.add_argument("--json", action="store_true", help="Print normalized result as JSON.")
-    vision_parser.add_argument(
-        "--fen-side",
-        metavar="SIDE",
-        help="Also serialize the result as Xiangqi FEN. Use 'red' or 'black' for clarity; 'w'/'b' remain supported.",
-    )
-
-    bestmove_parser = subparsers.add_parser("bestmove", help="Resolve a Xiangqi best move through a UCI engine.")
-    bestmove_source_group = bestmove_parser.add_mutually_exclusive_group(required=True)
-    bestmove_source_group.add_argument("--fen", help="Input Xiangqi FEN string.")
-    bestmove_source_group.add_argument("--vision-result", type=Path, help="Input normalized vision result JSON path.")
-    bestmove_parser.add_argument(
-        "--fen-side",
-        default="red",
-        metavar="SIDE",
-        help="Side to move when deriving FEN from a vision result. Use 'red' or 'black'; 'w'/'b' remain supported.",
-    )
-    bestmove_parser.add_argument("--engine", type=Path, help="Optional engine executable path.")
-    bestmove_parser.add_argument("--depth", type=int, default=15, help="Search depth.")
-    bestmove_parser.add_argument("--threads", type=int, help="Optional engine thread count.")
-    bestmove_parser.add_argument("--hash-mb", type=int, help="Optional transposition-table size in MiB.")
-    bestmove_parser.add_argument("--timeout-s", type=float, default=15.0, help="Search timeout in seconds.")
-    bestmove_parser.add_argument("--json", action="store_true", help="Print the engine request/result as JSON.")
-
-    turn_parser = subparsers.add_parser("turn", help="Run one vision-driven engine turn.")
-    turn_parser.add_argument(
-        "--vision-result",
-        type=Path,
-        help="Use a saved initial vision result JSON instead of capturing live GhostVision output.",
-    )
-    turn_parser.add_argument(
-        "--carriage",
-        required=True,
-        metavar="X,Y",
-        help="Current empty-carriage grid point before this turn.",
-    )
-    turn_parser.add_argument(
-        "--fen-side",
-        default="red",
-        metavar="SIDE",
-        help="Side to move for the generated FEN. Use 'red' or 'black'.",
-    )
-    turn_parser.add_argument("--engine", type=Path, help="Optional engine executable path.")
-    turn_parser.add_argument("--depth", type=int, default=15, help="Search depth.")
-    turn_parser.add_argument("--threads", type=int, help="Optional engine thread count.")
-    turn_parser.add_argument("--hash-mb", type=int, help="Optional transposition-table size in MiB.")
-    turn_parser.add_argument("--timeout-s", type=float, default=15.0, help="Search timeout in seconds.")
-    turn_parser.add_argument("--slot", type=int, help="Capture slot to use when the engine move captures.")
-    turn_parser.add_argument(
-        "--verify-vision",
-        action="store_true",
-        help="After executing the turn, capture GhostVision output and compare with expected occupancy.",
-    )
-    turn_parser.add_argument(
-        "--ignore-capture-vision",
-        action="store_true",
-        help="Ignore capture-area slot differences during post-turn vision verification.",
-    )
-    turn_parser.add_argument("--print-path", action="store_true", help="Print the resolved physical path.")
-    turn_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    turn_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    turn_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
-    turn_parser.add_argument("--json", action="store_true", help="Emit the turn summary as JSON.")
-
-    demo_parser = subparsers.add_parser("demo", help="Run a human-vs-engine demo loop.")
-    demo_parser.add_argument(
-        "--carriage",
-        default="0,0",
-        metavar="X,Y",
-        help="Initial empty-carriage grid point. Default: 0,0.",
-    )
-    demo_parser.add_argument(
-        "--reset-carriage",
-        default="0,0",
-        metavar="X,Y",
-        help="Software carriage position after a reset command. Default: 0,0.",
-    )
-    demo_parser.add_argument(
-        "--turns",
-        type=int,
-        help="Maximum number of machine responses to run. Default: run until Ctrl+C or error.",
-    )
-    demo_parser.add_argument(
-        "--fen-side",
-        default="black",
-        metavar="SIDE",
-        help="Engine side to move after each human confirmation. Default: black.",
-    )
-    demo_parser.add_argument(
-        "--trigger",
-        choices=["grbl-y-clicks", "grbl-y-double-click", "enter"],
-        default="grbl-y-clicks",
-        help="Operator command source. GRBL clicks use double-click for confirm and triple-click for reset.",
-    )
-    demo_parser.add_argument("--engine", type=Path, help="Optional engine executable path.")
-    demo_parser.add_argument("--depth", type=int, default=15, help="Search depth.")
-    demo_parser.add_argument("--threads", type=int, help="Optional engine thread count.")
-    demo_parser.add_argument("--hash-mb", type=int, help="Optional transposition-table size in MiB.")
-    demo_parser.add_argument("--timeout-s", type=float, default=15.0, help="Search timeout in seconds.")
-    demo_parser.add_argument(
-        "--no-verify-vision",
-        action="store_true",
-        help="Do not verify the board with vision after the machine move.",
-    )
-    demo_parser.add_argument(
-        "--ignore-capture-vision",
-        action="store_true",
-        help="Ignore capture-area slot differences during post-move vision verification.",
-    )
-    demo_parser.add_argument("--print-path", action="store_true", help="Print resolved physical paths.")
-    demo_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    demo_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    demo_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
-    demo_parser.add_argument("--button-axis", default="Y", help="GRBL limit pin used by the click trigger.")
-    demo_parser.add_argument(
-        "--button-pressed-when",
-        choices=["absent", "present"],
-        default="absent",
-        help="For GRBL pin trigger, treat the button as pressed when the pin is absent or present in Pn.",
-    )
-    demo_parser.add_argument("--button-poll-ms", type=float, default=30.0, help="Button polling interval.")
-    demo_parser.add_argument("--double-click-min-ms", type=float, default=120.0, help="Minimum double-click gap.")
-    demo_parser.add_argument("--double-click-max-ms", type=float, default=1000.0, help="Maximum double-click gap.")
-    demo_parser.add_argument("--button-debounce-ms", type=float, default=70.0, help="Button debounce window.")
-    demo_parser.add_argument("--json", action="store_true", help="Emit the demo summary as JSON.")
-
-    subparsers.add_parser("status", help="Read current GRBL status.")
-
-    magnet_parser = subparsers.add_parser("magnet", help="Turn magnet on or off.")
-    magnet_parser.add_argument("state", choices=["on", "off"])
-    magnet_parser.add_argument("--pwm", type=int, help="PWM override for magnet on.")
-
-    jog_parser = subparsers.add_parser("jog", help="Move the carriage in relative mode.")
-    jog_parser.add_argument("--x", type=float, default=0.0)
-    jog_parser.add_argument("--y", type=float, default=0.0)
-    jog_parser.add_argument("--feed", type=float, help="Feed in mm/min.")
-
-    step_parser = subparsers.add_parser("step", help="Move one or more chess cells with release offset motion.")
-    step_parser.add_argument("direction", choices=["x+", "x-", "y+", "y-"])
-    step_parser.add_argument("--cells", type=int, default=1)
-    step_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
-
-    route_parser = subparsers.add_parser("route", help="Run a segmented route cell by cell.")
-    route_parser.add_argument("segments", nargs="+", help="Examples: x+ x-:2 y+")
-    route_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
-
-    move_parser = subparsers.add_parser("move", help="Plan and execute a physical board move.")
-    move_parser.add_argument("start", help="Start cell as x,y.")
-    move_parser.add_argument("end", help="End cell as x,y.")
-    move_parser.add_argument(
-        "--occupied",
-        action="append",
-        default=[],
-        metavar="X,Y",
-        help="Additional occupied blocking cell on the 10x9 main board. Repeatable.",
-    )
-    move_occupancy_source = move_parser.add_mutually_exclusive_group()
-    move_occupancy_source.add_argument(
-        "--from-fen",
-        help="Derive initial occupancy from a Xiangqi FEN string. Start cell is added automatically.",
-    )
-    move_occupancy_source.add_argument(
-        "--from-vision-result",
-        type=Path,
-        help="Derive initial occupancy and capture-area slots from an external vision result JSON.",
-    )
-    move_parser.add_argument(
-        "--carriage",
-        metavar="X,Y",
-        help="Current empty-carriage cell. Defaults to the start cell.",
-    )
-    move_parser.add_argument(
-        "--print-path",
-        action="store_true",
-        help="Print the resolved physical path before execution.",
-    )
-    move_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    move_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    move_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
-
-    capture_parser = subparsers.add_parser("capture", help="Move the victim to capture area, then move attacker in.")
-    capture_parser.add_argument("start", help="Attacker cell as x,y.")
-    capture_parser.add_argument("target", help="Target cell as x,y.")
-    capture_parser.add_argument(
-        "--occupied",
-        action="append",
-        default=[],
-        metavar="X,Y",
-        help="Additional occupied blocking cell on the 10x9 main board. Repeatable.",
-    )
-    capture_occupancy_source = capture_parser.add_mutually_exclusive_group()
-    capture_occupancy_source.add_argument(
-        "--from-fen",
-        help="Derive initial occupancy from a Xiangqi FEN string. Attacker and target are added automatically.",
-    )
-    capture_occupancy_source.add_argument(
-        "--from-vision-result",
-        type=Path,
-        help="Derive initial occupancy and capture-area slots from an external vision result JSON.",
-    )
-    capture_parser.add_argument(
-        "--filled-slot",
-        action="append",
-        default=[],
-        type=int,
-        metavar="N",
-        help="Capture slot already occupied. Repeatable.",
-    )
-    capture_parser.add_argument("--slot", type=int, help="Capture slot to use. Defaults to the first empty slot.")
-    capture_parser.add_argument(
-        "--carriage",
-        metavar="X,Y",
-        help="Current empty-carriage cell. Defaults to the target cell.",
-    )
-    capture_parser.add_argument(
-        "--print-path",
-        action="store_true",
-        help="Print both resolved physical paths before execution.",
-    )
-    capture_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    capture_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    capture_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
-
-    scenario_parser = subparsers.add_parser("scenario", help="Run a scenario JSON file inside one GRBL session.")
-    scenario_parser.add_argument("path", type=Path, help="Path to the scenario JSON file.")
-    scenario_parser.add_argument("--move-feed", type=float, help="Override drag feed in mm/min for this run.")
-    scenario_parser.add_argument("--return-feed", type=float, help="Override empty return feed in mm/min for this run.")
-    scenario_parser.add_argument("--no-release-offset", action="store_true", help="Disable release offset motion.")
-    scenario_parser.add_argument(
-        "--verify-vision",
-        action="store_true",
-        help="After every step, capture a GhostVision snapshot and compare with expected occupancy.",
-    )
-    scenario_parser.add_argument(
-        "--ignore-capture-vision",
-        action="store_true",
-        help="Ignore capture-area slot differences during scenario vision verification.",
-    )
-    scenario_parser.add_argument("--json", action="store_true", help="Emit the run summary as JSON.")
-
-    config_parser = subparsers.add_parser("show-config", help="Print resolved config.")
-    config_parser.add_argument("--json", action="store_true", help="Print as JSON.")
-
-    web_parser = subparsers.add_parser("web", help="Run the GhostChessboard Web console.")
-    web_parser.add_argument("--host", help="Listen host. Default comes from config.web.host.")
-    web_parser.add_argument("--port", type=int, help="Listen port. Default comes from config.web.port.")
-
-    web_stop_parser = subparsers.add_parser("web-stop", help="Stop a background GhostChessboard Web console.")
-    web_stop_parser.add_argument("--port", type=int, help="Listening port. Default comes from config.web.port.")
-    web_stop_parser.add_argument("--timeout-s", type=float, default=5.0, help="Seconds to wait after SIGTERM.")
-    web_stop_parser.add_argument("--force", action="store_true", help="Send SIGKILL if the process ignores SIGTERM.")
-    web_stop_parser.add_argument(
-        "--allow-any-listener",
-        action="store_true",
-        help="Stop any process listening on the port, even if its command line does not look like this Web console.",
-    )
-    web_stop_parser.add_argument("--dry-run", action="store_true", help="Print matching processes without stopping them.")
-
-    return parser
 
 
 def load_runtime_config(args: argparse.Namespace) -> AppConfig:
@@ -355,100 +80,6 @@ def print_capture_execution(execution: "CaptureExecution") -> None:
     print(f"Capture slot: {execution.capture_slot}")
     print_route("Victim", execution.victim_route)
     print_route("Attacker", execution.attacker_route)
-
-
-def _route_to_dict(route) -> dict:
-    return {
-        "approach_from": list(route.approach_from) if route.approach_from is not None else None,
-        "start": list(route.start),
-        "end": list(route.end),
-        "waypoints_mm": [list(point) for point in route.waypoints_mm],
-        "release_mm": list(route.release_mm),
-        "release_offset_vector_mm": list(route.release_offset_vector_mm),
-    }
-
-
-def _execution_to_dict(execution) -> dict | None:
-    from src.board import CaptureExecution
-
-    if execution is None:
-        return None
-    if isinstance(execution, CaptureExecution):
-        return {
-            "kind": "capture",
-            "capture_slot": execution.capture_slot,
-            "victim_route": _route_to_dict(execution.victim_route),
-            "attacker_route": _route_to_dict(execution.attacker_route),
-        }
-    return {"kind": "move", "route": _route_to_dict(execution)}
-
-
-def _board_state_to_dict(state) -> dict:
-    return {
-        "occupied_cells": [list(cell) for cell in sorted(state.occupied_cells)],
-        "filled_capture_slots": sorted(state.filled_capture_slots),
-        "carriage_cell": list(state.carriage_cell) if state.carriage_cell is not None else None,
-    }
-
-
-def _scenario_summary_to_dict(summary) -> dict:
-    return {
-        "name": summary.name,
-        "total_steps": summary.total_steps,
-        "executed_steps": summary.executed_steps,
-        "halted_at_index": summary.halted_at_index,
-        "halt_reason": summary.halt_reason,
-        "results": [
-            {
-                "index": result.index,
-                "kind": result.kind,
-                "start": list(result.start),
-                "end": list(result.end),
-                "executed": result.executed,
-                "error": result.error,
-                "visual_status": result.visual_status,
-                "visual_diff": result.visual_diff,
-                "execution": _execution_to_dict(result.execution),
-            }
-            for result in summary.results
-        ],
-    }
-
-
-def _turn_result_to_dict(result) -> dict:
-    return {
-        "fen": result.fen,
-        "best_move": result.best_move,
-        "kind": result.kind,
-        "start": list(result.start),
-        "end": list(result.end),
-        "visual_status": result.visual_status,
-        "visual_diff": result.visual_diff,
-        "execution": _execution_to_dict(result.execution),
-        "final_state": _board_state_to_dict(result.final_state),
-    }
-
-
-def _demo_summary_to_dict(summary) -> dict:
-    return {
-        "requested_turns": summary.requested_turns,
-        "completed_turns": summary.completed_turns,
-        "halted_at_index": summary.halted_at_index,
-        "halt_reason": summary.halt_reason,
-        "reset_count": summary.reset_count,
-        "records": [
-            {
-                "index": record.index,
-                "confirmation": {
-                    "source": record.confirmation.source,
-                    "detail": record.confirmation.detail,
-                },
-                "error": record.error,
-                "turn": _turn_result_to_dict(record.turn) if record.turn is not None else None,
-            }
-            for record in summary.records
-        ],
-    }
 
 
 def _print_turn_result(result, *, print_path: bool) -> None:
@@ -541,179 +172,6 @@ def build_confirmation_trigger(args: argparse.Namespace, controller: "GrblContro
     raise ValueError(f"Unsupported confirmation trigger: {args.trigger}")
 
 
-def stop_web_app(
-    *,
-    port: int,
-    timeout_s: float = 5.0,
-    force: bool = False,
-    allow_any_listener: bool = False,
-    dry_run: bool = False,
-) -> None:
-    pids = _list_listening_pids(port)
-    if not pids:
-        print(f"No process is listening on TCP port {port}.")
-        return
-
-    candidates: list[tuple[int, str]] = []
-    skipped: list[tuple[int, str]] = []
-    for pid in sorted(pids):
-        command = _process_command(pid)
-        if allow_any_listener or _looks_like_web_process(command):
-            candidates.append((pid, command))
-        else:
-            skipped.append((pid, command))
-
-    for pid, command in skipped:
-        print(f"Skipping PID {pid}: {command or '(command unavailable)'}")
-
-    if not candidates:
-        print(f"No GhostChessboard Web process found on TCP port {port}.")
-        print("Use --allow-any-listener if you intentionally want to stop the listener on that port.")
-        raise SystemExit(2)
-
-    for pid, command in candidates:
-        label = command or "(command unavailable)"
-        if dry_run:
-            print(f"Would stop PID {pid}: {label}")
-            continue
-
-        print(f"Stopping PID {pid}: {label}")
-        os.kill(pid, signal.SIGTERM)
-        if _wait_for_process_exit(pid, timeout_s=timeout_s):
-            print(f"Stopped PID {pid}.")
-            continue
-
-        if force:
-            os.kill(pid, signal.SIGKILL)
-            if _wait_for_process_exit(pid, timeout_s=timeout_s):
-                print(f"Killed PID {pid}.")
-                continue
-
-        print(f"PID {pid} is still running.")
-        raise SystemExit(1)
-
-
-def _list_listening_pids(port: int) -> set[int]:
-    pids: set[int] = set()
-    pids.update(_listening_pids_from_ss(port))
-    pids.update(_listening_pids_from_lsof(port))
-    if os.name == "nt":
-        pids.update(_listening_pids_from_netstat(port))
-    return pids
-
-
-def _listening_pids_from_ss(port: int) -> set[int]:
-    result = _run_probe(["ss", "-ltnp"])
-    if result is None:
-        return set()
-
-    pids: set[int] = set()
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) < 4 or fields[0] != "LISTEN":
-            continue
-        local_address = fields[3]
-        if not _address_matches_port(local_address, port):
-            continue
-        pids.update(int(pid) for pid in re.findall(r"pid=(\d+)", line))
-    return pids
-
-
-def _listening_pids_from_lsof(port: int) -> set[int]:
-    result = _run_probe(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fp"])
-    if result is None:
-        return set()
-    pids: set[int] = set()
-    for line in result.stdout.splitlines():
-        if line.startswith("p") and line[1:].isdigit():
-            pids.add(int(line[1:]))
-    return pids
-
-
-def _listening_pids_from_netstat(port: int) -> set[int]:
-    result = _run_probe(["netstat", "-ano", "-p", "TCP"])
-    if result is None:
-        return set()
-    pids: set[int] = set()
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) < 5 or fields[-2] != "LISTENING":
-            continue
-        if _address_matches_port(fields[1], port) and fields[-1].isdigit():
-            pids.add(int(fields[-1]))
-    return pids
-
-
-def _address_matches_port(address: str, port: int) -> bool:
-    _, separator, raw_port = address.rpartition(":")
-    return bool(separator) and raw_port == str(port)
-
-
-def _process_command(pid: int) -> str:
-    if os.name == "nt":
-        result = _run_probe(["wmic", "process", "where", f"ProcessId={pid}", "get", "CommandLine", "/value"])
-        if result is None:
-            return ""
-        prefix = "CommandLine="
-        for line in result.stdout.splitlines():
-            if line.startswith(prefix):
-                return line[len(prefix):].strip()
-        return ""
-
-    result = _run_probe(["ps", "-p", str(pid), "-o", "command="])
-    return result.stdout.strip() if result is not None else ""
-
-
-def _looks_like_web_process(command: str) -> bool:
-    normalized = command.replace("\\", "/")
-    lower = normalized.lower()
-    tokens = [token.strip("\"'").lower() for token in normalized.split()]
-    command_names = {token.rsplit("/", 1)[-1].removesuffix(".exe") for token in tokens}
-    has_web_arg = "web" in tokens
-    return (
-        ("src.cli" in lower and has_web_arg)
-        or ("ghostchessboard" in command_names and has_web_arg)
-        or ("ghostchessboard" in lower and "uvicorn" in lower)
-        or ("ghostchessboard" in lower and "src.web.server" in lower)
-    )
-
-
-def _wait_for_process_exit(pid: int, *, timeout_s: float) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if not _process_is_alive(pid):
-            return True
-        time.sleep(0.1)
-    return not _process_is_alive(pid)
-
-
-def _process_is_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def _run_probe(command: list[str]) -> subprocess.CompletedProcess[str] | None:
-    try:
-        result = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except (FileNotFoundError, PermissionError):
-        return None
-    if result.returncode != 0:
-        return None
-    return result
-
-
 def run(args: argparse.Namespace) -> None:
     config = load_runtime_config(args)
 
@@ -758,7 +216,7 @@ def run(args: argparse.Namespace) -> None:
         return
 
     if args.command == "web-stop":
-        stop_web_app(
+        web_process.stop_web_app(
             port=args.port or config.web.port,
             timeout_s=args.timeout_s,
             force=args.force,
@@ -831,7 +289,7 @@ def run(args: argparse.Namespace) -> None:
             )
 
         if args.json:
-            print(json.dumps(_turn_result_to_dict(result), indent=2, ensure_ascii=False))
+            print(json.dumps(cli_serialization.turn_result_to_dict(result), indent=2, ensure_ascii=False))
         else:
             _print_turn_result(result, print_path=args.print_path)
         if result.visual_status not in {"skipped", "ok"}:
@@ -904,7 +362,7 @@ def run(args: argparse.Namespace) -> None:
             )
 
             if args.json:
-                print(json.dumps(_demo_summary_to_dict(summary), indent=2, ensure_ascii=False))
+                print(json.dumps(cli_serialization.demo_summary_to_dict(summary), indent=2, ensure_ascii=False))
             else:
                 print(
                     f"Demo: completed {summary.completed_turns}/{summary.requested_turns} "
@@ -1029,7 +487,7 @@ def run(args: argparse.Namespace) -> None:
             )
 
             if args.json:
-                print(json.dumps(_scenario_summary_to_dict(summary), indent=2, ensure_ascii=False))
+                print(json.dumps(cli_serialization.scenario_summary_to_dict(summary), indent=2, ensure_ascii=False))
             else:
                 print(
                     f"Scenario {summary.name!r}: executed {summary.executed_steps}/"
@@ -1045,7 +503,7 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = build_parser()
+    parser = cli_parser.build_parser()
     args = parser.parse_args()
     try:
         run(args)

@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.cli import _looks_like_web_process, build_parser, run
+from src.cli import run
+from src.cli_parser import build_parser
 
 
 class FakeGrblController:
@@ -92,7 +93,7 @@ class WebStopCliTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["web-stop", "--dry-run"])
 
-        with patch("src.cli.stop_web_app") as stop_mock:
+        with patch("src.web_process.stop_web_app") as stop_mock:
             run(args)
 
         self.assertEqual(stop_mock.call_args.kwargs["port"], 8080)
@@ -102,24 +103,12 @@ class WebStopCliTests(unittest.TestCase):
         parser = build_parser()
         args = parser.parse_args(["web-stop", "--port", "8090", "--force", "--allow-any-listener"])
 
-        with patch("src.cli.stop_web_app") as stop_mock:
+        with patch("src.web_process.stop_web_app") as stop_mock:
             run(args)
 
         self.assertEqual(stop_mock.call_args.kwargs["port"], 8090)
         self.assertTrue(stop_mock.call_args.kwargs["force"])
         self.assertTrue(stop_mock.call_args.kwargs["allow_any_listener"])
-
-    def test_web_process_matcher_accepts_cli_web_command(self) -> None:
-        command = "/home/ghost/GhostChessboard/.web-venv/bin/python -m src.cli web --port 8080"
-
-        self.assertTrue(_looks_like_web_process(command))
-        self.assertFalse(_looks_like_web_process("/usr/bin/python -m src.cli status"))
-
-    def test_web_process_matcher_accepts_installed_web_command(self) -> None:
-        self.assertTrue(_looks_like_web_process("/home/ghost/.local/bin/ghostchessboard web --port 8080"))
-        self.assertTrue(_looks_like_web_process('"C:\\Program Files\\GhostChessboard\\ghostchessboard.exe" web'))
-        self.assertFalse(_looks_like_web_process("/home/ghost/.local/bin/ghostchessboard status"))
-
 
 def _write_temp_json(payload: dict) -> Path:
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:

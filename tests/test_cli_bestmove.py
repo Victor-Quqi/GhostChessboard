@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.cli import build_parser, run
+from src.cli import run
+from src.cli_parser import build_parser
 
 INITIAL_FEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
 
