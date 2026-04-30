@@ -75,7 +75,7 @@ class TurnCliTests(unittest.TestCase):
         )
 
         stdout = io.StringIO()
-        with patch("src.machine.grbl.GrblController", FakeGrblController):
+        with patch("src.cli_handlers.GrblController", FakeGrblController):
             with patch("src.turn.get_best_move", return_value="h2e2"):
                 with contextlib.redirect_stdout(stdout):
                     run(args)

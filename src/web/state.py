@@ -18,7 +18,7 @@ from src.xiangqi_rules import (
     normalize_side,
     opposite_side,
     pieces_to_xiangqi_fen,
-    standard_starting_pieces,
+    standard_starting_piece_labels,
     terminal_status,
     validate_legal_move,
 )
@@ -51,7 +51,7 @@ class WebGameState:
         if carriage_cell is not None:
             validate_grid_point(carriage_cell)
         self._lock = threading.RLock()
-        self.pieces: dict[BoardCell, str] = standard_starting_pieces()
+        self.pieces: dict[BoardCell, str] = standard_starting_piece_labels()
         self.captured: dict[int, str] = {}
         self.carriage_cell: GridPoint | None = carriage_cell
         self.side_to_move: str = "red"
@@ -175,7 +175,7 @@ class WebGameState:
 
         side_to_move = normalize_side(str(raw.get("side_to_move", "red")))
         with self._lock:
-            self.pieces = pieces or standard_starting_pieces()
+            self.pieces = pieces or standard_starting_piece_labels()
             self.captured = captured
             self.carriage_cell = carriage_cell
             self.side_to_move = side_to_move
@@ -188,7 +188,7 @@ class WebGameState:
     def reset_game(self, *, carriage_cell: GridPoint = (0, 0)) -> None:
         validate_grid_point(carriage_cell)
         with self._lock:
-            self.pieces = standard_starting_pieces()
+            self.pieces = standard_starting_piece_labels()
             self.captured = {}
             self.carriage_cell = carriage_cell
             self.side_to_move = "red"

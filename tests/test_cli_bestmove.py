@@ -33,7 +33,7 @@ class BestMoveCliTests(unittest.TestCase):
         )
 
         stdout = io.StringIO()
-        with patch("src.engine.get_best_move", return_value="a3a4") as get_best_move_mock:
+        with patch("src.cli_handlers.get_best_move", return_value="a3a4") as get_best_move_mock:
             with contextlib.redirect_stdout(stdout):
                 run(args)
 
@@ -73,7 +73,7 @@ class BestMoveCliTests(unittest.TestCase):
         )
 
         stdout = io.StringIO()
-        with patch("src.engine.get_best_move", return_value="a3a4") as get_best_move_mock:
+        with patch("src.cli_handlers.get_best_move", return_value="a3a4") as get_best_move_mock:
             with contextlib.redirect_stdout(stdout):
                 run(args)
 
