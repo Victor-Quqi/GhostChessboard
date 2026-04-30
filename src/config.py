@@ -27,7 +27,7 @@ class MotionConfig:
     release_pwm_segments: int = 1
     move_feed_mm_min: float = 4800.0
     return_feed_x_mm_min: float = 7200.0
-    return_feed_y_mm_min: float = 2400.0
+    return_feed_y_mm_min: float = 4800.0
     engage_delay_s: float = 0.0
     settle_delay_s: float = 0.10
 
