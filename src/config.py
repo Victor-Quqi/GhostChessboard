@@ -106,6 +106,7 @@ class VisionProbeConfig:
     ghostvision_bin: str = "ghostvision"
     camera_device: str = "/dev/video0"
     calibration_path: str = "../GhostVision/calibrations/nuc_primary_1920x1080.json"
+    config_path: str | None = "../GhostVision/.ghostvision.local.json"
     artifacts_dir: str = "runtime/verify"
     keep_recent_runs: int = 5
     snapshot_timeout_s: float = 20.0

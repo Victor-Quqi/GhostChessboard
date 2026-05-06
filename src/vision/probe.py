@@ -130,6 +130,8 @@ class GhostVisionCliProbe:
             str(result_path),
             "--crop",
         ]
+        if self.config.config_path is not None:
+            cmd.extend(["--config", self.config.config_path])
         self._run("capture-result", cmd, timeout=self.config.snapshot_timeout_s + self.config.recognize_timeout_s)
 
     def _ghostvision_command(self) -> str:

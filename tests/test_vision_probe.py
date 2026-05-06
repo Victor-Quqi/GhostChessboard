@@ -92,6 +92,20 @@ class GhostVisionCliProbeTests(unittest.TestCase):
             "../GhostVision/calibrations/nuc_primary_1920x1080.json",
         )
 
+    def test_default_runtime_config_path_matches_current_ghostvision_file(self) -> None:
+        self.assertEqual(
+            VisionProbeConfig().config_path,
+            "../GhostVision/.ghostvision.local.json",
+        )
+
+    def test_capture_passes_runtime_config_to_ghostvision(self) -> None:
+        runner = FakeRunner()
+        probe = GhostVisionCliProbe(self._config(config_path="../GhostVision/.ghostvision.local.json"), run_process=runner)
+
+        probe.capture()
+
+        self.assertEqual(_arg_after(runner.calls[0], "--config"), "../GhostVision/.ghostvision.local.json")
+
     def test_capture_snapshot_returns_recognized_snapshot(self) -> None:
         runner = FakeRunner()
         probe = GhostVisionCliProbe(self._config(), run_process=runner)
