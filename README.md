@@ -8,6 +8,16 @@ An automated Xiangqi chessboard for human-vs-AI play and demonstrations, built a
 
 GhostChessboard uses flat Xiangqi pieces that slide directly on the board surface. Each piece is mounted on a magnet-attracting carrier with a piece sticker on top. An electromagnet on an XY gantry under the board drags the pieces automatically, enabling physical human-vs-AI games and automated demos.
 
+## Demos
+
+| Web AI move | Side-view mechanical motion |
+|---|---|
+| ![Web AI move demo](docs/assets/demos/web-ai-move.gif) | ![Side-view mechanical motion demo](docs/assets/demos/side-view-motion.gif) |
+
+| Path planning obstacle avoidance | Capture behavior |
+|---|---|
+| ![Path planning obstacle avoidance demo](docs/assets/demos/path-planning-obstacle.gif) | ![Capture behavior demo](docs/assets/demos/capture-demo.gif) |
+
 ## Documentation
 
 - [Technical plan](docs/tech.md)

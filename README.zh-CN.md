@@ -6,6 +6,16 @@
 
 当前默认棋面载体为直接拖动的扁平棋片：以引磁片作载片，上表面贴棋子贴纸，由棋盘下方 XY 平台上的电磁铁拖动，在棋盘表面自动滑动，可用于人机对弈或 AI 演示。
 
+## 效果展示
+
+| WebUI AI 走子 | 侧拍机械行为 |
+|---|---|
+| ![WebUI AI 走子效果展示](docs/assets/demos/web-ai-move.gif) | ![侧拍机械行为展示](docs/assets/demos/side-view-motion.gif) |
+
+| 路径规划避障 | 吃子行为 |
+|---|---|
+| ![路径规划避障演示](docs/assets/demos/path-planning-obstacle.gif) | ![吃子行为演示](docs/assets/demos/capture-demo.gif) |
+
 ## 文档
 
 - [技术规划](docs/tech.md)
